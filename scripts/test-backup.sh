@@ -16,6 +16,15 @@ expect_refused() {
     && pass "$1 : refusée, services intacts" || fail "$1 : refusée mais LiteLLM arrêté"
 }
 
+# The archive must contain one dump per database listed by lib.sh, and nothing empty.
+mapfile -t expected < <(databases | cut -d: -f2 | sort)
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:BACKUP_PASSPHRASE -in "$ARCHIVE" \
+  | tar -tvf - > "$WORK/contenu.txt"
+for db in "${expected[@]}"; do
+  size="$(awk -v f="./db-$db.sql.gz" '$NF == f { print $3 }' "$WORK/contenu.txt")"
+  [ -n "$size" ] && [ "$size" -gt 1000 ] && pass "dump $db présent ($size octets)" || fail "dump $db absent ou vide"
+done
+
 cp "$ARCHIVE" "$WORK/altere.tar.enc"
 cp "$ARCHIVE.mac" "$WORK/altere.tar.enc.mac" 2>/dev/null || true
 # Flip one byte in the middle of the ciphertext.
@@ -24,5 +33,14 @@ expect_refused "archive modifiée d'un octet" "$WORK/altere.tar.enc"
 
 cp "$ARCHIVE" "$WORK/sans-mac.tar.enc"
 expect_refused "archive sans fichier .mac" "$WORK/sans-mac.tar.enc"
+
+echo "Restauration d'une archive valide (relance les mêmes services)…"
+before="$(docker compose ps --status running --services | sort | tr '\n' ' ')"
+if ./scripts/restore.sh "$ARCHIVE" >/dev/null 2>&1; then
+  after="$(docker compose ps --status running --services | sort | tr '\n' ' ')"
+  [ "$before" = "$after" ] && pass "restaurée, services relancés : $after" || fail "services avant [$before] / après [$after]"
+else
+  fail "restauration d'une archive valide en échec"
+fi
 
 finish

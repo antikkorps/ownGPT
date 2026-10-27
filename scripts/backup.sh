@@ -11,16 +11,23 @@ BACKUP_DIR="${BACKUP_DIR:-./backups}"
 BACKUP_KEEP_DAYS="${BACKUP_KEEP_DAYS:-14}"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
-# Leftovers of a killed run hold plain dumps: remove them first.
-find "$BACKUP_DIR" -maxdepth 1 -name '.work-*' -exec rm -rf {} +
+# Leftovers of a killed backup hold plain dumps: remove them (only old ones, and only
+# backup ones, so a concurrent run is never touched).
+find "$BACKUP_DIR" -maxdepth 1 -name '.work-backup-*' -mmin +120 -exec rm -rf {} +
 # Plain dumps (password hashes, TLS keys) only ever live inside the 700 backup dir.
-WORK="$(mktemp -d "$BACKUP_DIR/.work-XXXXXX")"
+WORK="$(mktemp -d "$BACKUP_DIR/.work-backup-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-while IFS=: read -r service db user; do
+mapfile -t DATABASES < <(databases)
+for entry in "${DATABASES[@]}"; do
+  IFS=: read -r service db user <<<"$entry"
   echo "[$(date -Is)] Dump de la base $db…"
-  docker compose exec -T "$service" pg_dump -U "$user" -d "$db" --clean --if-exists | gzip -9 > "$WORK/db-$db.sql.gz"
-done < <(databases)
+  # </dev/null: `compose exec` would otherwise swallow the caller's stdin.
+  docker compose exec -T "$service" pg_dump -U "$user" -d "$db" --clean --if-exists </dev/null \
+    | gzip -9 > "$WORK/db-$db.sql.gz"
+done
+dumps=("$WORK"/db-*.sql.gz)
+[ "${#dumps[@]}" = "${#DATABASES[@]}" ] || { echo "ERREUR : ${#dumps[@]} dumps pour ${#DATABASES[@]} bases." >&2; exit 1; }
 
 # Volumes holding files that are not in PostgreSQL (uploads, vector DB, TLS certs).
 # ./cache (embedding/whisper models, ~4 GB) is excluded: Open WebUI re-downloads it on start.

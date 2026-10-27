@@ -405,8 +405,10 @@ et `LITELLM_SALT_KEY`) séparément.
 **Restauration** : `./scripts/restore.sh backups/ownGPT-<date>.tar.enc`. L'archive est
 authentifiée (fichier `.mac`) et déchiffrée **avant** tout arrêt de service : une archive
 modifiée ou sans `.mac` est refusée et la plateforme continue de tourner
-(`./scripts/test-backup.sh` le vérifie). Arrêt à la première erreur SQL ; testée : une donnée
-créée après la sauvegarde disparaît. Copier l'archive **et** son `.mac`.
+(`./scripts/test-backup.sh` le vérifie). Chaque base est restaurée en une seule transaction (rien n'est appliqué en cas d'erreur), puis
+les services qui tournaient sont relancés ; testée : une donnée créée après la sauvegarde
+disparaît. Copier l'archive **et** son `.mac`. Les archives créées avant l'ajout du `.mac`
+sont refusées : en refaire une avec `./scripts/backup.sh`.
 
 **Migration maison → VPS (< 15 min)** :
 1. Maison : `./scripts/backup.sh` ; copier l'archive, son `.mac` et `.env` sur le VPS
