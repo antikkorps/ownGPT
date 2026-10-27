@@ -103,10 +103,13 @@ Security invariants
 - Secrets live only in `.env`; a new secret goes into `.env.example` (empty, commented) and
   `scripts/gen-secrets.sh`.
 - Open WebUI talks only to `http://litellm:4000/v1`, never to a provider directly.
-- On the public API site, Caddy allowlists model routes only; everything else (LiteLLM UI,
-  login, admin API) and the Authentik console require `ADMIN_ALLOWED_IPS`. Only
-  `CLOUDFLARED_IP` may forward a client IP; never allow 172.16.0.0/12 (Docker gateway).
-  Caddy strips `X-OpenWebUI-*` headers from outside. `caddy/test-caddy.sh` must stay green.
+- On the public API site, Caddy allowlists chat routes (`/v1/chat/completions`,
+  `/v1/messages*`) and model listing only; never open a route whose text is not in
+  `messages[]` (`/v1/completions`, `/v1/embeddings`, `/v1/responses`…): Presidio would not
+  scan it. Everything else (LiteLLM UI, login, admin API) and the Authentik console require
+  `ADMIN_ALLOWED_IPS`. Only `CLOUDFLARED_IP` may forward a client IP; never allow
+  172.16.0.0/12 or fc00::/7 (Docker gateways). Caddy strips `X-OpenWebUI-*` and
+  `X-LiteLLM-*` on the whole API site. `caddy/test-caddy.sh` must stay green.
 - Keep `store_prompts_in_spend_logs: false` and `turn_off_message_logging: true`: logs hold
   metadata only.
 - Both guardrails stay `default_on`. A new virtual key joins team `demo` (opts out of

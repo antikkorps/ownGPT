@@ -25,7 +25,7 @@ services:
       LITELLM_SITE: ${LITELLM_SITE:?}
       AUTHENTIK_SITE: ${AUTHENTIK_SITE:-http://auth.localhost}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.invalid}
-      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1/8 ::1/128 10.0.0.0/8 192.168.0.0/16 fc00::/7}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1/8 ::1/128 10.0.0.0/8 192.168.0.0/16}
       CLOUDFLARED_IP: ${CLOUDFLARED_IP:-172.31.250.250}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro

@@ -151,8 +151,10 @@ nano .env                               # MISTRAL_API_KEY, domaines, CLOUDFLARE_
 4. L'administration LiteLLM (`/ui`, `/login`, API `/key`, `/team`, `/config`…) n'est
    accessible qu'aux IP de `ADMIN_ALLOWED_IPS` (défaut : réseaux privés du LAN). Pour
    administrer depuis l'extérieur : ajouter votre IP publique, ou mieux, créer une
-   application **Cloudflare Access** sur `api.<domaine>` en excluant les chemins `/v1/*`
-   (utilisés par les outils avec leur clé virtuelle).
+   application **Cloudflare Access** sur `api.<domaine>` en laissant hors Access (*bypass*)
+   les seuls chemins publics, utilisés par les outils avec leur clé virtuelle :
+   `/v1/chat/completions`, `/chat/completions`, `/v1/messages*`, `/v1/models*`, `/models`,
+   `/health/liveliness`, `/health/readiness`.
 
 ```bash
 docker compose --profile tunnel up -d --build     # 5–7 min au premier lancement
@@ -398,13 +400,17 @@ sudo dpkg-reconfigure -plow unattended-upgrades    # mises à jour de sécurité
 - **Attention** : les ports publiés par Docker contournent UFW. Ici seuls 80/443 sont publiés
   (les bases et services internes n'ont **aucun** port sur l'hôte) ; ne pas en ajouter.
 - Utiliser aussi le pare-feu de la console Hetzner (22 limité à votre IP, 80/443 ouverts).
-- Administration LiteLLM et console Authentik : réservées à `ADMIN_ALLOWED_IPS` (défaut :
-  réseaux privés). Sur un VPS, mettre `ADMIN_ALLOWED_IPS="<votre IP>/32"` ; seules les routes
-  de modèles (`/v1/chat/completions`, `/v1/messages`, `/v1/models`…) restent publiques, avec
-  clé virtuelle obligatoire. Caddy ne croit l'IP client transmise que si elle vient de
-  cloudflared (`CLOUDFLARED_IP`). Ne jamais ajouter 172.16.0.0/12 (passerelle Docker).
-- Les en-têtes d'identité `X-OpenWebUI-*` sont supprimés par Caddy sur l'API publique : seul
-  Open WebUI (en interne) peut attribuer une dépense à un utilisateur.
+- Administration LiteLLM et console Authentik (`/if/admin`) : réservées à `ADMIN_ALLOWED_IPS`
+  (défaut : 10.0.0.0/8 et 192.168.0.0/16 ; à réduire à votre réseau). Sur un VPS, mettre
+  `ADMIN_ALLOWED_IPS="<votre IP>/32"`. Seules les routes de chat et la liste des modèles
+  restent publiques, avec clé virtuelle obligatoire ; `/v1/completions`, `/v1/embeddings` et
+  `/v1/responses` sont fermées car leur texte échapperait au guardrail Presidio. Caddy ne
+  croit l'IP client transmise que si elle vient de cloudflared (`CLOUDFLARED_IP`). Ne jamais
+  ajouter 172.16.0.0/12 ni fc00::/7 (passerelles Docker).
+- L'API d'Authentik (`/api/v3/*`) reste joignable : elle sert aussi aux parcours de connexion
+  et exige un jeton d'administration pour toute action d'administration.
+- Les en-têtes `X-OpenWebUI-*` (identité) et `X-LiteLLM-*` (contrôle) sont supprimés par Caddy
+  sur toute l'API : seul Open WebUI, en interne, peut attribuer une dépense à un utilisateur.
 - Vérification hors ligne : `./caddy/test-caddy.sh` (lancé par `scripts/check.sh` et la CI).
 - `chmod 600 .env` (fait par `gen-secrets.sh`).
 
@@ -459,7 +465,7 @@ pourrait prendre le contrôle d'un compte local du même e-mail, y compris l'adm
 | `401 Invalid API Key` (Mistral), puis `429 … in cooldown` quelques secondes | Clé fournisseur invalide ; après un échec LiteLLM met le déploiement en pause quelques secondes. |
 | `400 Blocked entity detected: CREDIT_CARD/FR_NIR` | Comportement voulu (guardrail). |
 | Une consigne commence par `<PERSON>` | Faux positif spaCy sur un verbe à l'impératif ; reformuler, ou passer la clé concernée en `pii-dev`. |
-| `403 Accès refusé` sur `/ui` | IP hors `ADMIN_ALLOWED_IPS`. Depuis le serveur lui-même (`localhost`), la requête arrive par la passerelle Docker, volontairement exclue : utiliser un autre poste du LAN, ou `./scripts/litellm-api.sh` pour l'API. |
+| `403 Accès refusé` sur `/ui` | IP hors `ADMIN_ALLOWED_IPS`. Depuis le serveur lui-même (`localhost`), ou quand Docker relaie les connexions par son proxy userland (Docker Desktop, WSL2, IPv6), la requête arrive par la passerelle Docker, volontairement exclue : utiliser un poste du LAN sur un Docker Engine Linux, le tunnel avec votre IP autorisée, ou `./scripts/litellm-api.sh` pour l'API. |
 | Open WebUI ne voit aucun modèle | Clé `openwebui` non enregistrée : `./scripts/create-keys.sh`. |
 | Modifier `config.yaml` n'a aucun effet | `docker compose restart litellm` (un `up -d` ne redémarre pas si seul un fichier monté change). |
 | Changement de variable Open WebUI sans effet | Lue au premier démarrage seulement : *Admin → Settings*. |
