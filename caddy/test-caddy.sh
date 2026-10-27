@@ -130,5 +130,23 @@ try: u.build_opener(N).open("http://chat.lan.test/", timeout=10)
 except e.HTTPError as x: print(x.code, x.headers.get("Location"))' || true)"
 [[ "$got" == 30[18]\ https://chat.lan.test/* ]] && echo "PASS  HTTP → HTTPS ($got)" || { echo "FAIL  redirection HTTP : $got"; FAIL=1; }
 
+echo "-- émetteur de certificats selon le mode (caddy adapt, hors ligne)"
+# issuers <OPENWEBUI_SITE> <CADDY_TLS> — issuer modules of the adapted TLS config.
+issuers() {
+  docker run --rm -e OPENWEBUI_SITE="$1" -e LITELLM_SITE="${1/chat/api}" -e AUTHENTIK_SITE="${1/chat/auth}" \
+    -e CADDY_TLS="$2" -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
+    -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" \
+    caddy adapt --config /etc/caddy/Caddyfile 2>/dev/null \
+    | python3 -c 'import json,sys; t=json.load(sys.stdin).get("apps",{}).get("tls",{})
+print(" ".join(sorted({i["module"] for p in t.get("automation",{}).get("policies",[]) for i in p.get("issuers",[])})) or "aucun")' || true
+}
+check_issuers() {  # check_issuers <label> <site> <mode> <expected>
+  local got; got="$(issuers "$2" "$3")"
+  [ "$got" = "$4" ] && echo "PASS  $1 : $got" || { echo "FAIL  $1 : $4 attendu, obtenu $got"; FAIL=1; }
+}
+check_issuers "VPS (Let's Encrypt)"        chat.exemple.fr        acme     acme
+check_issuers "tunnel (HTTP simple)"       http://chat.exemple.fr acme     aucun
+check_issuers "LAN (autorité locale)"      chat.lan.test          internal internal
+
 [ "$FAIL" = 0 ] && echo "RÉSULTAT : OK" || echo "RÉSULTAT : ÉCHEC"
 exit "$FAIL"
