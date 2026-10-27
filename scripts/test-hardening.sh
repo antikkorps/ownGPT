@@ -6,7 +6,7 @@ set -euo pipefail
 source "$(dirname "$0")/lib.sh"
 
 # Services that never need the Internet: they live on the internal "donnees" network only.
-NO_EGRESS=(postgres presidio-analyzer presidio-anonymizer)
+NO_EGRESS=(postgres)
 
 inspect() { docker inspect -f "$2" "$(docker compose ps -q "$1")"; }
 
@@ -42,11 +42,9 @@ fi
 
 while read -r svc image; do
   [[ "$image" == *@sha256:* ]] && pass "$svc : image épinglée par empreinte" || fail "$svc : $image sans empreinte"
-done < <(docker compose --profile sso --profile tunnel config --format json \
+done < <(docker compose --profile tunnel config --format json \
   | python3 -c 'import json,sys
 for n,s in json.load(sys.stdin)["services"].items():
     if "build" not in s: print(n, s["image"])')
-grep -q '^FROM .*@sha256:' presidio/Dockerfile && pass "presidio/Dockerfile : base épinglée par empreinte" \
-  || fail "presidio/Dockerfile : base sans empreinte"
 
 finish

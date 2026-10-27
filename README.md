@@ -12,7 +12,7 @@
  OpenCode ────┤ 443 │  Caddy ──► Open WebUI ──┐                                         │
  Claude Code ─┼────►│    │      (chat, RAG     │                                         │     Mistral (UE)
  Scripts/n8n ─┘     │    │       local)        ▼                                         │ ──► Scaleway (Paris)
-                    │    └──────────────► LiteLLM ──► Presidio FR (masque / bloque) ─────┼──► (autres : désactivés)
+                    │    └──────────────► LiteLLM ──────────────────────────────────────┼──► (autres : désactivés)
                     │                     clés virtuelles, budgets, journaux sans contenu│
                     │                PostgreSQL (openwebui + litellm) — jamais exposé      │
                     └───────────────────────────────────────────────────────────────────┘
@@ -28,12 +28,12 @@ Démo sur **données fictives uniquement**. Scénario de présentation : [DEMO.m
 4. [Installation — serveur maison (Cloudflare Tunnel ou LAN)](#4-installation--serveur-maison)
 5. [Installation — VPS (HTTPS automatique)](#5-installation--vps)
 6. [Premier démarrage](#6-premier-démarrage)
-7. [Gouvernance : permissions, guardrails, budgets, journaux](#7-gouvernance)
+7. [Gouvernance : permissions, données, budgets, journaux](#7-gouvernance)
 8. [Intégrations (OpenCode, Claude Code, automatisations)](#8-intégrations)
 9. [Exploitation : mise à jour, sauvegarde, migration maison → VPS, fin de démo](#9-exploitation)
 10. [Durcissement minimal du VPS](#10-durcissement-minimal-du-vps)
 11. [Coûts estimés en production (30 personnes)](#11-coûts-estimés-en-production)
-12. [SSO avec Authentik](#12-sso-avec-authentik-profil-sso-optionnel)
+12. [SSO d'entreprise (OIDC)](#12-sso-dentreprise-oidc-optionnel)
 13. [Dépannage et points à vérifier](#13-dépannage-et-points-à-vérifier)
 
 ---
@@ -42,33 +42,26 @@ Démo sur **données fictives uniquement**. Scénario de présentation : [DEMO.m
 
 Toutes les images sont épinglées par **tag et empreinte** (`image:tag@sha256:…`, vérifiées le
 27/10/2026 dans les registres officiels) : un tag republié ne peut pas changer ce qui tourne.
-Le modèle spaCy est installé depuis sa release officielle et vérifié par son sha256
-(`presidio/spacy-models.sha256`).
 
 | Service | Image | Rôle |
 |---|---|---|
 | Caddy | `caddy:2.11.7-alpine` | Reverse proxy, HTTPS Let's Encrypt (VPS) ; seul service exposé (80/443) |
 | Open WebUI | `ghcr.io/open-webui/open-webui:v0.12.4` | Interface, comptes, historique, assistants, Knowledge (RAG local), prompts, skills |
 | LiteLLM | `ghcr.io/berriai/litellm:v1.106.4` | Passerelle unique : formats OpenAI **et** Anthropic, clés virtuelles, budgets, fallbacks |
-| Presidio analyzer | `owngpt/presidio-analyzer-fr` (construit depuis `ghcr.io/data-privacy-stack/presidio-analyzer:2.2.366`) | Détection des données personnelles **en français** (spaCy `fr_core_news_lg`, NIR) |
-| Presidio anonymizer | `ghcr.io/data-privacy-stack/presidio-anonymizer:2.2.366` | Masquage |
 | PostgreSQL | `postgres:17.11-alpine` | Une instance, deux bases et deux rôles séparés (`openwebui`, `litellm`) |
 | cloudflared *(profil `tunnel`)* | `cloudflare/cloudflared:2026.10.4` | Accès public au serveur maison sans IP exposée |
-| Authentik *(profil `sso`)* | `ghcr.io/goauthentik/server:2026.8.5` + `postgres:16.15-alpine` | SSO OIDC (Authentik 2026.x n'utilise plus Redis) |
 
-> Presidio est désormais publié sur GHCR (`data-privacy-stack`) : le dépôt MCR historique
-> n'a plus de tags.
+Aucune image construite localement : uniquement des images officielles.
 
 Arborescence :
 
 ```
 docker-compose.yml   .env.example   caddy/Caddyfile   postgres/init/
 litellm/config.yaml  litellm/config.scaleway.yaml
-presidio/            Dockerfile + conf/ (NLP fr, reconnaisseurs dont NIR) + test-analyzer.sh
 seed/                assistants, prompts, skill, documents fictifs, groupes + import_seed.py
 integrations/        opencode/  claude-code/  automation/
-scripts/             gen-secrets, create-keys, litellm-api, test-presidio, test-models,
-                     list-provider-models, backup, restore, panne-mistral.yml
+scripts/             gen-secrets, create-keys, litellm-api, test-models, test-hardening,
+                     test-backup, list-provider-models, backup, restore, export-ca, check
 ```
 
 ## 2. Prérequis et dimensionnement
@@ -76,7 +69,7 @@ scripts/             gen-secrets, create-keys, litellm-api, test-presidio, test-
 - Ubuntu 24.04 (ou toute distribution récente), Docker Engine ≥ 27 avec le plugin Compose v2,
   `git`, `curl`, `openssl`, `python3` (scripts).
 - Mode VPS : IP publique, nom de domaine avec deux enregistrements DNS `chat.` et `api.`
-  (+ `auth.` pour le SSO).
+
 
 **Consommation mesurée** (`docker stats`, démo au repos et en usage léger) :
 
@@ -84,20 +77,17 @@ scripts/             gen-secrets, create-keys, litellm-api, test-presidio, test-
 |---|---|---|
 | Open WebUI (dont modèle d'embeddings local) | ~1,3 Go | 2,5 Go |
 | LiteLLM | ~0,6 Go | 1,5 Go |
-| Presidio analyzer `fr_core_news_lg` | ~1,2 Go (`md` : ~0,5 Go) | 2 Go |
-| Presidio anonymizer | ~60 Mo | 256 Mo |
 | PostgreSQL | ~80 Mo | 512 Mo |
 | Caddy | ~15 Mo | 128 Mo |
-| **Total cœur** | **≈ 3,3 Go** | 6,9 Go |
-| *Profil `sso` (Authentik server + worker + postgres)* | *≈ +1,2 à 1,5 Go (estimation)* | *2,25 Go* |
+| **Total** | **≈ 2 Go** | 4,6 Go |
 
 | Usage | RAM | vCPU | Disque |
 |---|---|---|---|
-| **Démo** (quelques testeurs) | **8 Go** (tient avec le profil `sso`) | 2–4 | 40 Go |
-| **Production ~30 utilisateurs** | **16 Go conseillés** (pics d'indexation de documents, plusieurs workers LiteLLM, SSO, marge) | 4–8 | 80 Go + sauvegardes externes |
+| **Démo** (quelques testeurs) | **4 Go** minimum, 8 Go confortable | 2 | 40 Go |
+| **Production ~30 utilisateurs** | **8 Go conseillés** (pics d'indexation de documents, plusieurs workers LiteLLM, marge) | 4 | 80 Go + sauvegardes externes |
 
-Un serveur maison de 16 Go ou plus convient largement. Une offre VPS à 1 Go **ne suffit pas**.
-Aucun GPU n'est nécessaire : seuls l'embedding (RAG) et spaCy tournent localement, sur CPU.
+Une offre VPS à 1 Go **ne suffit pas**. Aucun GPU n'est nécessaire : seul l'embedding (RAG)
+tourne localement, sur CPU.
 
 ## 3. Clés API des fournisseurs
 
@@ -148,7 +138,7 @@ nano .env                               # MISTRAL_API_KEY, domaines, CLOUDFLARE_
 1. Zero Trust → Networks → Tunnels → *Create a tunnel* → Cloudflared → copier le **token**
    dans `CLOUDFLARE_TUNNEL_TOKEN`.
 2. *Public hostnames* : `chat.<domaine>` → `HTTP` `caddy:80` ; `api.<domaine>` → `HTTP` `caddy:80`
-   (et `auth.<domaine>` pour le SSO).
+
 3. Dans `.env` (déjà le mode par défaut) : `OPENWEBUI_SITE=http://chat.<domaine>`,
    `LITELLM_SITE=http://api.<domaine>`, `OPENWEBUI_URL=https://chat.<domaine>`, `HTTP_BIND=127.0.0.1`.
 4. L'administration LiteLLM (`/ui`, `/login`, API `/key`, `/team`, `/config`…) n'est
@@ -160,7 +150,7 @@ nano .env                               # MISTRAL_API_KEY, domaines, CLOUDFLARE_
    `/health/liveliness`, `/health/readiness`.
 
 ```bash
-docker compose --profile tunnel up -d --build     # 5–7 min au premier lancement
+docker compose --profile tunnel up -d     # 5–7 min au premier lancement
 ```
 
 > À savoir (et à dire en démo) : Cloudflare termine le TLS et voit donc le trafic en clair.
@@ -176,7 +166,7 @@ LITELLM_SITE=api.192-168-1-10.nip.io
 OPENWEBUI_URL=https://chat.192-168-1-10.nip.io
 CADDY_TLS=internal
 HTTP_BIND=192.168.1.10                       # l'IP LAN, pas 0.0.0.0
-docker compose up -d --build
+docker compose up -d
 ./scripts/export-ca.sh                       # → owngpt-root-ca.crt + empreinte SHA-256
 ```
 Installer `owngpt-root-ca.crt` sur chaque poste client, en vérifiant l'empreinte affichée :
@@ -211,7 +201,7 @@ nano .env
 #   LITELLM_SITE=api.<domaine>
 #   OPENWEBUI_URL=https://chat.<domaine>
 #   ACME_EMAIL=vous@<domaine>   HTTP_BIND=0.0.0.0   MISTRAL_API_KEY=…
-docker compose up -d --build
+docker compose up -d
 ```
 
 Caddy obtient les certificats au premier accès (ports 80 et 443 ouverts requis).
@@ -224,7 +214,7 @@ Toutes les étapes sont scriptées et idempotentes (relançables sans risque).
 docker compose ps                                     # tous « healthy » (Open WebUI : ~3 min la 1re fois)
 ./scripts/create-keys.sh                              # budgets, équipe « demo », 4 clés virtuelles
 docker compose exec openwebui python3 /seed/import_seed.py   # groupes, comptes, droits, assistants…
-./scripts/test-presidio.sh && ./scripts/test-models.sh
+./scripts/test-models.sh && ./scripts/test-hardening.sh
 ```
 
 1. **Administrateur Open WebUI** : créé automatiquement au premier démarrage avec
@@ -283,49 +273,19 @@ Pourquoi :
 > Les variables `USER_PERMISSIONS_*`, `ENABLE_SIGNUP`, etc. ne sont lues qu'au **premier
 > démarrage** (ensuite, la configuration est en base : *Admin → Settings*).
 
-### 7.2 Guardrails Presidio (données personnelles)
+### 7.2 Données et confidentialité
 
-Analyse **avant** l'envoi au fournisseur (`pre_call`, entrée seulement), en français
-(image construite avec spaCy `fr_core_news_lg` + reconnaisseurs déclarés pour `fr`).
+La protection des données repose sur des garanties **contractuelles et d'architecture**, pas
+sur un filtrage statistique :
 
-| Entité | Action | Exemple |
-|---|---|---|
-| `CREDIT_CARD` | **BLOCK** (HTTP 400) | 4111 1111 1111 1111 |
-| `FR_NIR` (n° de sécurité sociale, reconnaisseur Python avec contrôle de la clé mod 97) | **BLOCK** | 1 85 05 78 006 084 91 |
-| `IBAN_CODE` | MASK → `<IBAN_CODE>` | FR76 3000 6000 0112 3456 7890 189 |
-| `EMAIL_ADDRESS` | MASK | prenom.nom@exemple.fr |
-| `PHONE_NUMBER` | MASK | 06 12 34 56 78, +33 6 … |
-| `PERSON` | MASK (sauf agents de code) | Camille Durand |
-
-- **S'applique à toutes les clés** : deux guardrails `default_on`. `pii-standard` (tout) pour
-  le chat et les automatisations ; `pii-dev` (tout sauf `PERSON`) pour OpenCode et Claude Code,
-  car masquer les noms casserait du code (`class CamilleDurand`, auteurs, identifiants).
-  La sélection passe par la métadonnée `opted_out_global_guardrails` (l'équipe « demo » se
-  retire de `pii-dev`, les clés de dev se retirent de `pii-standard`). Une clé créée sans
-  métadonnée passe par **les deux** : protégée par défaut. (Le choix de guardrails par clé
-  est une fonction LiteLLM Enterprise ; le retrait est gratuit.)
-- **NIR** : seul un numéro dont la clé de contrôle est valide est bloqué ; sans clé, il faut un
-  mot de contexte à proximité (« sécurité sociale », « NIR », « assuré »…). Une référence de
-  commande à 13–15 chiffres n'est donc pas bloquée par erreur.
-- **Fail-closed** (testé) : si Presidio ne répond pas, la requête est refusée (HTTP 500), rien
-  ne part chez le fournisseur.
-- **Journaux** : seuls le nom du guardrail et le nombre d'entités par type sont stockés
-  (`{"PERSON": 1, "PHONE_NUMBER": 1}`), la réponse brute de Presidio est caviardée par LiteLLM
-  et le contenu des messages n'est jamais écrit (§7.4). Le fournisseur et les journaux ne
-  voient que le texte masqué.
-- **Couverture** (lue dans le code de LiteLLM 1.106.4) : Presidio analyse le texte de chaque
-  message (`messages[].content`, chaîne ou blocs `text`) : chat, prompts système d'Open WebUI,
-  documents injectés par le RAG, résultats d'outils au format OpenAI (OpenCode). Il **n'analyse
-  pas** : les images, les arguments d'appels d'outils, et pour `/v1/messages` (Claude Code) le
-  champ `system` de premier niveau et les blocs `tool_result` — un fichier lu par Claude Code
-  n'est donc pas filtré. Pour les agents de code : pas de dépôt contenant des données réelles.
-- **Limites** (à annoncer) : détection statistique. Mesuré sur 20 consignes de bureau : 1 faux
-  « nom » (« Traduis… » en début de phrase) avec `lg`, 3 avec `md` ; 8 noms sur 8 détectés.
-  Un nom rare, mal orthographié ou en minuscules peut passer. Presidio est un **filet de
-  sécurité**, pas un substitut à la règle « pas de données sensibles réelles ».
-- Tests : `presidio/test-analyzer.sh` (analyseur seul) et `scripts/test-presidio.sh` (bout en bout).
-- Masquer aussi les **réponses** du modèle : `presidio_filter_scope: both` dans
-  `litellm/config.yaml` (désactivé : masquerait des noms publics dans les réponses).
+- **Fournisseurs** : Mistral (UE) et Scaleway (Paris) uniquement ; en production, comptes
+  payants sous contrat, DPA signé, zéro rétention, pas d'entraînement sur les données.
+- **Un seul point de sortie** : seule la passerelle détient les clés des fournisseurs ; Open WebUI
+  et les outils n'ont que des clés virtuelles, révocables et plafonnées.
+- **Journaux sans contenu** (§7.4) et historique des conversations stocké chez nous.
+- **Droits par groupe** (§7.1) : modèles autorisés, partage, exécution de code réservée aux admins.
+- **Règle d'usage** à faire connaître : pas de données sensibles (santé, n° de sécurité sociale,
+  données bancaires) tant que la production n'est pas contractualisée et l'AIPD faite.
 
 ### 7.3 Budgets
 
@@ -361,8 +321,7 @@ puisse pas imputer sa consommation à quelqu'un d'autre.
 ### 7.4 Journaux
 
 - **Stocké** (base `litellm`, 90 jours) : date, clé, utilisateur final, équipe, modèle,
-  fournisseur effectif (dont fallback), tokens, coût, statut, résultat des guardrails (types
-  d'entités comptés).
+  fournisseur effectif (dont fallback), tokens, coût, statut.
 - **Jamais stocké** : prompts et réponses (`store_prompts_in_spend_logs: false`,
   `turn_off_message_logging: true` ; vérifié en base : colonnes `messages`/`response` vides).
 - L'**historique des conversations** est dans Open WebUI (base `openwebui`), visible par
@@ -373,12 +332,12 @@ puisse pas imputer sa consommation à quelqu'un d'autre.
 
 Une clé virtuelle **par usage** (budget, modèles autorisés et journaux propres) :
 
-| Clé | Modèles | Guardrail | Doc |
+| Clé | Modèles | Budget démo | Doc |
 |---|---|---|---|
-| `openwebui` | tous les actifs (filtrés par groupe dans Open WebUI) | pii-standard | — |
-| `opencode` | glm, devstral, mistral-medium | pii-dev | [integrations/opencode](integrations/opencode/README.md) |
-| `claude-code` | glm, devstral, mistral-medium | pii-dev | [integrations/claude-code](integrations/claude-code/README.md) |
-| `automatisation` | mistral-small | pii-standard | [integrations/automation](integrations/automation/README.md) |
+| `openwebui` | tous les actifs (filtrés par groupe dans Open WebUI) | 5 $ | — |
+| `opencode` | glm, devstral, mistral-medium | 2 $ | [integrations/opencode](integrations/opencode/README.md) |
+| `claude-code` | glm, devstral, mistral-medium | 2 $ | [integrations/claude-code](integrations/claude-code/README.md) |
+| `automatisation` | mistral-small | 1 $ | [integrations/automation](integrations/automation/README.md) |
 
 Endpoints : OpenAI `https://api.<domaine>/v1` · Anthropic `https://api.<domaine>/v1/messages`
 (`test-models.sh` teste les deux en mode non streamé ; le streaming `/v1/messages` a été vérifié
@@ -388,13 +347,13 @@ et *Usage*.
 ## 9. Exploitation
 
 **Mise à jour** : pour chaque image, lire les notes de version, puis mettre à jour **tag et
-empreinte** dans `docker-compose.yml` (et `presidio/Dockerfile`) :
+empreinte** dans `docker-compose.yml` :
 `docker buildx imagetools inspect <image>:<nouveau-tag>` → ligne `Digest:`. Ensuite
-`./scripts/backup.sh && docker compose pull && docker compose up -d --build`, puis
-`test-hardening.sh`, `test-presidio.sh` et `test-models.sh`.
+`./scripts/backup.sh && docker compose pull && docker compose up -d`, puis
+`test-hardening.sh`, `test-backup.sh` et `test-models.sh`.
 
 **Sauvegarde** : `./scripts/backup.sh` → `backups/ownGPT-<date>.tar.enc` (un dump par base,
-Authentik compris si le profil `sso` tourne, + volumes Open WebUI et certificats ; chiffré
++ volumes Open WebUI et certificats ; chiffré
 AES-256 avec `BACKUP_PASSPHRASE` puis **authentifié** par un HMAC-SHA256 (`.tar.enc.mac`),
 rotation `BACKUP_KEEP_DAYS`). Le cache des modèles
 d'embeddings (~4 Go) est exclu : il est retéléchargé. Les fichiers intermédiaires non chiffrés
@@ -416,9 +375,9 @@ sont refusées : en refaire une avec `./scripts/backup.sh`.
 2. VPS (Docker installé, dépôt cloné) : dans `.env`, passer en mode VPS (adresses sans
    `http://`, `OPENWEBUI_URL=https://…`, `ACME_EMAIL`, `HTTP_BIND=0.0.0.0`).
 3. DNS : supprimer les *public hostnames* du tunnel, créer les enregistrements A vers le VPS.
-4. `docker compose build && docker compose up -d postgres && ./scripts/restore.sh <archive>`
+4. `docker compose up -d postgres && ./scripts/restore.sh <archive>`
    (relance tout).
-5. `./scripts/test-presidio.sh && ./scripts/test-models.sh`.
+5. `./scripts/test-models.sh && ./scripts/test-hardening.sh`.
 
 **Après la démo (VPS)** : `./scripts/backup.sh`, récupérer l'archive et `.env`, faire un
 **snapshot** du VPS dans la console Hetzner (facturé tant qu'il existe), puis **supprimer le
@@ -443,21 +402,19 @@ sudo dpkg-reconfigure -plow unattended-upgrades    # mises à jour de sécurité
 - **Attention** : les ports publiés par Docker contournent UFW. Ici seuls 80/443 sont publiés
   (les bases et services internes n'ont **aucun** port sur l'hôte) ; ne pas en ajouter.
 - Utiliser aussi le pare-feu de la console Hetzner (22 limité à votre IP, 80/443 ouverts).
-- Administration LiteLLM et console Authentik (`/if/admin`) : réservées à `ADMIN_ALLOWED_IPS`
-  (défaut : 10.0.0.0/8 et 192.168.0.0/16 ; à réduire à votre réseau). Sur un VPS, mettre
+- Administration LiteLLM : réservée à `ADMIN_ALLOWED_IPS`
+  (défaut : localhost, 10.0.0.0/8 et 192.168.0.0/16 ; à réduire à votre réseau). Sur un VPS, mettre
   `ADMIN_ALLOWED_IPS="<votre IP>/32"`. Seules les routes de chat et la liste des modèles
   restent publiques, avec clé virtuelle obligatoire ; `/v1/completions`, `/v1/embeddings` et
-  `/v1/responses` sont fermées car leur texte échapperait au guardrail Presidio. Caddy ne
+  `/v1/responses` sont fermées (aucun client ne les utilise : surface minimale). Caddy ne
   croit l'IP client transmise que si elle vient de cloudflared (`CLOUDFLARED_IP`). Ne jamais
   ajouter 172.16.0.0/12 ni fc00::/7 (passerelles Docker).
-- L'API d'Authentik (`/api/v3/*`) reste joignable : elle sert aussi aux parcours de connexion
-  et exige un jeton d'administration pour toute action d'administration.
 - Les en-têtes `X-OpenWebUI-*` (identité) et `X-LiteLLM-*` (contrôle) sont supprimés par Caddy
   sur toute l'API : seul Open WebUI, en interne, peut attribuer une dépense à un utilisateur.
 - Vérification hors ligne : `./caddy/test-caddy.sh` (lancé par `scripts/check.sh` et la CI).
 - Conteneurs durcis (vérifié par `./scripts/test-hardening.sh`) : `no-new-privileges` partout,
   toutes les capacités Linux retirées (sauf le strict nécessaire pour Caddy et PostgreSQL),
-  limite de processus, et réseau `donnees` **sans accès Internet** pour PostgreSQL et Presidio.
+  limite de processus, et réseau `donnees` **sans accès Internet** pour PostgreSQL.
 - `.env` est créé en 600 par `gen-secrets.sh` (umask 077) ; les scripts le lisent sans
   l'exécuter, et ne passent ni clé ni secret en argument de commande (invisibles dans `ps`).
 
@@ -484,34 +441,26 @@ Le **temps de maintenance n'est pas inclus** (mises à jour mensuelles, supervis
 sauvegardes, support utilisateurs : prévoir quelques heures par mois). Les agents de code
 sont le poste qui varie le plus : leur donner des clés et budgets séparés.
 
-## 12. SSO avec Authentik (profil `sso`, optionnel)
+## 12. SSO d'entreprise (OIDC, optionnel)
 
-```bash
-docker compose --profile sso up -d       # + ~1,5 Go de RAM
-```
-1. Attendre ~2 min (création des flux par le worker), puis ouvrir `https://auth.<domaine>/` :
-   redirection vers l'assistant d'installation, créer le compte `akadmin`.
-2. *Applications → Create with provider* : **OAuth2/OpenID**, type *Confidential*,
-   redirect URI `https://chat.<domaine>/oauth/oidc/login/callback`, scopes
-   `openid email profile` ; slug de l'application : `openwebui`. Exiger des **e-mails vérifiés**
-   (politique d'inscription Authentik).
-3. Dans `.env` : `ENABLE_OAUTH_SIGNUP=true`, `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`,
-   `OPENID_PROVIDER_URL=https://auth.<domaine>/application/o/openwebui/.well-known/openid-configuration`.
-   Pour synchroniser les groupes Authentik vers Open WebUI : `ENABLE_OAUTH_GROUP_MANAGEMENT=true`
-   et ajouter le claim `groups` (property mapping).
-4. `docker compose up -d openwebui` : le bouton « Continuer avec Authentik » apparaît. Les
-   nouveaux comptes SSO arrivent en rôle `pending` (validation par un admin).
+Pas de composant supplémentaire : Open WebUI se branche directement sur l'annuaire de
+l'entreprise (Entra ID, Google Workspace, Okta, Keycloak existant…).
+1. Chez le fournisseur d'identité : créer une application OIDC « confidentielle », redirect URI
+   `https://chat.<domaine>/oauth/oidc/login/callback`, scopes `openid email profile`.
+2. Dans `.env` : `ENABLE_OAUTH_SIGNUP=true`, `OPENID_PROVIDER_URL` (URL
+   `.well-known/openid-configuration`), `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`. Pour
+   synchroniser les groupes : `ENABLE_OAUTH_GROUP_MANAGEMENT=true` et un claim `groups`.
+3. `docker compose up -d openwebui` : le bouton « Continuer avec SSO entreprise » apparaît. Les
+   nouveaux comptes arrivent en rôle `pending` (validation par un admin).
 
-`OAUTH_MERGE_ACCOUNTS_BY_EMAIL` reste à `false` : sinon un compte SSO avec un e-mail non vérifié
-pourrait prendre le contrôle d'un compte local du même e-mail, y compris l'administrateur.
+`OAUTH_MERGE_ACCOUNTS_BY_EMAIL` reste à `false` sauf si le fournisseur garantit des e-mails
+vérifiés : sinon un compte SSO pourrait prendre le contrôle d'un compte local du même e-mail.
 
 ## 13. Dépannage et points à vérifier
 
 | Symptôme | Cause / solution |
 |---|---|
 | `401 Invalid API Key` (Mistral), puis `429 … in cooldown` quelques secondes | Clé fournisseur invalide ; après un échec LiteLLM met le déploiement en pause quelques secondes. |
-| `400 Blocked entity detected: CREDIT_CARD/FR_NIR` | Comportement voulu (guardrail). |
-| Une consigne commence par `<PERSON>` | Faux positif spaCy sur un verbe à l'impératif ; reformuler, ou passer la clé concernée en `pii-dev`. |
 | `403 Accès refusé` sur `/ui` | IP hors `ADMIN_ALLOWED_IPS`. Depuis le serveur lui-même (`localhost`), ou quand Docker relaie les connexions par son proxy userland (Docker Desktop, WSL2, IPv6), la requête arrive par la passerelle Docker, volontairement exclue : utiliser un poste du LAN sur un Docker Engine Linux, le tunnel avec votre IP autorisée, ou `./scripts/litellm-api.sh` pour l'API. |
 | Open WebUI ne voit aucun modèle | Clé `openwebui` non enregistrée : `./scripts/create-keys.sh`. |
 | Modifier `config.yaml` n'a aucun effet | `docker compose restart litellm` (un `up -d` ne redémarre pas si seul un fichier monté change). |

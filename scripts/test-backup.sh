@@ -34,6 +34,16 @@ expect_refused "archive modifiée d'un octet" "$WORK/altere.tar.enc"
 cp "$ARCHIVE" "$WORK/sans-mac.tar.enc"
 expect_refused "archive sans fichier .mac" "$WORK/sans-mac.tar.enc"
 
+# An authentic archive holding a database this stack no longer has (e.g. made when an
+# Authentik profile existed) must be refused before anything is stopped.
+mkdir -p "$WORK/ancien"
+openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:BACKUP_PASSPHRASE -in "$ARCHIVE" | tar -C "$WORK/ancien" -xf -
+gzip -c /dev/null > "$WORK/ancien/db-authentik.sql.gz"
+tar -C "$WORK/ancien" -cf - . | openssl enc -aes-256-cbc -pbkdf2 -iter 600000 -salt -pass env:BACKUP_PASSPHRASE \
+  -out "$WORK/ancien.tar.enc"
+archive_mac "$WORK/ancien.tar.enc" > "$WORK/ancien.tar.enc.mac"
+expect_refused "archive avec une base inconnue (authentik)" "$WORK/ancien.tar.enc"
+
 echo "Restauration d'une archive valide (relance les mêmes services)…"
 before="$(docker compose ps --status running --services | sort | tr '\n' ' ')"
 if ./scripts/restore.sh "$ARCHIVE" >/dev/null 2>&1; then

@@ -25,8 +25,6 @@ declare -A SECRETS=(
   [LITELLM_KEY_CLAUDECODE]="sk-$(hex)"
   [LITELLM_KEY_AUTOMATION]="sk-$(hex)"
   [BACKUP_PASSPHRASE]="$(hex)"
-  [AUTHENTIK_SECRET_KEY]="$(openssl rand -base64 60 | tr -d '\n')"
-  [AUTHENTIK_DB_PASSWORD]="$(hex)"
 )
 
 # fill_env — rewrites .env, filling only empty values (an existing secret is never rotated).

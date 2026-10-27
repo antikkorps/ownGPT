@@ -2,8 +2,7 @@
 
 OpenCode parle le format OpenAI : il pointe sur `https://api.<domaine>/v1` avec la
 clé virtuelle **opencode** (modèles `glm`, `devstral`, `mistral-medium` uniquement,
-budget 2 $/30 j, masquage des noms désactivé mais cartes / NIR / IBAN / e-mails /
-téléphones toujours filtrés).
+budget 2 $/30 j, journalisée sans contenu : modèle, tokens, coût).
 
 ## Installation
 
@@ -22,7 +21,7 @@ opencode            # puis /models pour vérifier que « passerelle/glm » est s
 ## Vérifier
 
 - Tableau de bord LiteLLM (`https://api.<domaine>/ui`) → **Logs** : filtrer par clé
-  `opencode` ; chaque appel montre modèle, tokens, coût et guardrail `pii-dev`.
+  `opencode` ; chaque appel montre modèle, tokens et coût.
 - **Virtual Keys** → `opencode` : dépense cumulée et budget restant.
 
 ## Ajuster le budget ou les modèles

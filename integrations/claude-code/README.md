@@ -3,7 +3,7 @@
 LiteLLM expose le format Anthropic sur `https://api.<domaine>/v1/messages` et le
 traduit vers n'importe quel modèle de la passerelle. Claude Code s'y connecte avec la
 clé virtuelle **claude-code** (modèles `glm`, `devstral`, `mistral-medium`, budget
-2 $/30 j, guardrail `pii-dev`).
+2 $/30 j).
 
 Sources vérifiées : <https://code.claude.com/docs/en/llm-gateway-connect> et
 <https://docs.litellm.ai/docs/proxy/client_setup/claude_code>.
@@ -45,10 +45,6 @@ Les variables `ANTHROPIC_DEFAULT_*_MODEL` font envoyer `glm` / `mistral-medium` 
 
 ## Limites à annoncer honnêtement
 
-- **Filtrage Presidio partiel au format Anthropic** : le champ `system` et les résultats
-  d'outils (`tool_result`, donc le contenu des fichiers lus) ne sont pas analysés par le
-  guardrail LiteLLM ; seuls les messages texte le sont. Ne pas utiliser Claude Code sur un dépôt
-  contenant des données personnelles réelles.
 - **Anthropic ne prend pas en charge Claude Code avec des modèles non-Claude** (doc
   officielle des passerelles). Ça fonctionne techniquement, mais Claude Code est optimisé
   pour Claude : avec GLM, attendre plus d'erreurs d'outils, des plans moins fiables et
@@ -60,7 +56,7 @@ Les variables `ANTHROPIC_DEFAULT_*_MODEL` font envoyer `glm` / `mistral-medium` 
   ```bash
   ./scripts/litellm-api.sh POST /key/generate '{"key_alias":"claude-code-dev","team_id":"demo",
     "models":["claude-sonnet"],"max_budget":50,"budget_duration":"30d",
-    "metadata":{"usage":"dev","opted_out_global_guardrails":["pii-standard"]}}'
+    "metadata":{"usage":"dev"}}'
   ./scripts/litellm-api.sh POST /team/update '{"team_id":"demo","models":["mistral-small","mistral-medium","glm","devstral","claude-sonnet"]}'
   ```
   (une clé ne peut utiliser que des modèles autorisés aussi pour son équipe).

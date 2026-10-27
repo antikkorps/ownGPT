@@ -44,31 +44,33 @@ Cliquer sur le nom du modèle → **glm** → *Regénérer* (même question).
 reposer une question à mistral-small, montrer dans *Logs* le modèle `mistral-small-secours`,
 puis `docker compose up -d --wait litellm`.)
 
-## 3. Protection des données personnelles (2 min)
+## 3. Un point d'entrée gouverné (2 min)
 
 Modèle **mistral-small** :
 
 ```
-Prépare un message pour rappeler Camille Durand au 06 12 34 56 78 au sujet de son dossier, et propose-lui un rendez-vous jeudi.
+Rédige un message de relance pour un fournisseur qui a 3 semaines de retard de livraison.
 ```
 
-La réponse parle d'un « <PERSON> » et d'un « <PHONE_NUMBER> ». Aller dans LiteLLM → *Logs* →
-dernière ligne → *Guardrails* : `pii-standard`, `PERSON: 1`, `PHONE_NUMBER: 1`.
+Aller dans LiteLLM → *Logs* → dernière ligne : utilisateur (`admin@…`), clé `openwebui`,
+modèle, fournisseur effectif, tokens, coût. Ouvrir le détail : **aucun texte** de la question
+ni de la réponse.
 
-> « Le nom et le téléphone ont été masqués **avant** de quitter notre serveur. Le fournisseur
-> ne les a jamais vus. Et nos journaux ne gardent même pas le texte : seulement le fait qu'un
-> nom et un téléphone ont été masqués. »
+> « Chaque requête passe par notre passerelle : on sait qui, avec quel outil, quel modèle, pour
+> combien. La passerelle, elle, ne garde pas ce que les gens écrivent : l'historique des
+> conversations reste dans notre outil, sur notre serveur. Les données partent uniquement chez
+> des fournisseurs européens, sous contrat en production : DPA, zéro rétention, pas
+> d'entraînement. »
 
-Puis :
+Puis, dans *Virtual Keys* → `automatisation` → **Block** (ou *Delete*), et relancer :
 
+```bash
+python3 integrations/automation/resume_document.py integrations/automation/document-exemple.txt
 ```
-Peux-tu régler la facture avec ma carte 4111 1111 1111 1111, expiration 12/28 ?
-```
 
-→ message d'erreur « Blocked entity detected: CREDIT_CARD ».
+→ « Refusé par la passerelle (HTTP 401) ». Débloquer la clé.
 
-> « Une carte bancaire, ou un numéro de sécurité sociale, ne sort pas : la requête est
-> bloquée. »
+> « Un usage se coupe en un clic, sans toucher aux clés des fournisseurs ni aux autres outils. »
 
 ## 4. Assistant métier sur nos documents (2 min)
 
@@ -144,7 +146,7 @@ export OWNGPT_API_URL=https://api.<domaine> OWNGPT_AUTOMATION_KEY=…   # LITELL
 python3 integrations/automation/resume_document.py integrations/automation/document-exemple.txt
 ```
 
-> « Les développeurs et les scripts passent par la même porte : même filtrage, même
+> « Les développeurs et les scripts passent par la même porte : mêmes droits, même
 > journalisation, même budget. Pas de clés de fournisseurs qui traînent sur les postes. »
 
 ## 8. Tableau de bord : tout au même endroit (1 min)
@@ -168,8 +170,8 @@ utilisateur (*Customers* : `standard@demo.example.com`…), par modèle ; budget
 
 **Où vont les données ?**
 Interface, comptes, historique, documents et index de recherche restent sur notre serveur.
-Seul le texte de la requête, après masquage, part chez le fournisseur choisi : Mistral
-(France/UE) ou Scaleway (Paris). Pendant la démo, le serveur de démonstration est hébergé hors datacenter et l'accès passe par
+Seul le texte de la requête part chez le fournisseur choisi : Mistral (France/UE) ou Scaleway
+(Paris). Pendant la démo, le serveur de démonstration est hébergé hors datacenter et l'accès passe par
 Cloudflare Tunnel : Cloudflare termine le chiffrement HTTPS et voit donc le trafic en clair.
 Acceptable pour des données fictives ; en production, hébergement français avec HTTPS de bout
 en bout jusqu'à notre serveur, sans intermédiaire.
@@ -180,19 +182,19 @@ accès à la base (comme pour tout outil métier) : à encadrer par la charte ad
 journalisation système. Côté fournisseur : contrat, DPA, zéro rétention en production.
 
 **Que contiennent les logs ?**
-LiteLLM : date, clé, utilisateur, modèle, tokens, coût, et le résultat du filtrage
-(« 1 nom, 1 téléphone masqués »). **Pas le contenu** des messages ni des réponses (vérifié en
-base). Conservation : 90 jours.
+LiteLLM : date, clé, utilisateur, modèle, fournisseur, tokens, coût. **Pas le contenu** des
+messages ni des réponses (vérifié en base). Conservation : 90 jours.
 
-**Et si Presidio rate quelque chose ?**
-C'est une détection statistique : un filet de sécurité, pas une garantie. Il analyse le texte
-des messages (chat, documents injectés, résultats d'outils au format OpenAI), mais pas les
-images, ni le prompt système de premier niveau et les résultats d'outils du format Anthropic
-utilisé par Claude Code : ces usages-là restent sous la règle « pas de données réelles ». Mesuré : tous les
-noms courants détectés, quelques faux positifs. Ce qui passe ne part que chez un fournisseur
-sous contrat (DPA, zéro rétention, UE). La règle reste : pas de données sensibles réelles sans
-validation, et formation des utilisateurs. Les cartes et NIR (clé de contrôle vérifiée) sont
-**bloqués**, et si Presidio est indisponible, **tout est refusé** (fail-closed, testé).
+**Et si quelqu'un colle une donnée sensible ?**
+Elle part chez un fournisseur européen sous contrat (en production : DPA, zéro rétention, pas
+d'entraînement). La passerelle ne la journalise pas ; elle reste dans l'historique de la
+conversation, sur notre serveur, supprimable par l'utilisateur ou l'admin. Pendant la démo en
+tunnel, Cloudflare voit aussi le trafic (voir plus haut). Nous n'avons
+volontairement pas mis de filtrage automatique des données personnelles : testé, il rate des
+cas, crée des faux positifs et dégrade les réponses (noms remplacés par des balises). La
+protection repose sur le contrat, sur la règle d'usage (pas de santé, de n° de sécurité
+sociale ni de données bancaires) et sur la formation. Un filtrage peut être ajouté plus tard
+sur la passerelle si un usage le justifie, sans changer les outils.
 
 **Qui peut exécuter du code sur le serveur ?**
 Personne, sauf le rôle administrateur (Tools / Functions d'Open WebUI). Testé : la création est
@@ -220,7 +222,7 @@ pour tout modèle.
 
 - [ ] Serveur à jour : `sudo apt update && sudo apt upgrade -y`, redémarrage si noyau mis à jour
 - [ ] `docker compose ps` : tous les services `healthy`
-- [ ] `./scripts/test-presidio.sh` → **RÉSULTAT : OK**
+- [ ] `./scripts/test-hardening.sh` et `./scripts/test-backup.sh` → **RÉSULTAT : OK**
 - [ ] `./scripts/test-models.sh` → **RÉSULTAT : OK** (fallback Scaleway inclus s'il est configuré)
 - [ ] Comptes de démo : `CREATE_DEMO_USERS=true` + import, connexion `standard@demo.example.com`
       et `avance@demo.example.com`

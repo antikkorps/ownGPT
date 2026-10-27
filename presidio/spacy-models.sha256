@@ -1,4 +1,0 @@
-# sha256 of the official spaCy model wheels (github.com/explosion/spacy-models releases),
-# checked at build time with pip --require-hashes. Compatible with spaCy 3.8.x.
-8a70d090a54ef77525c3ffa6a6195b9d365f2cf369ae1cd84ede93f3d709079e  fr_core_news_md-3.8.0
-da5bf7fc860af64293d88638b4416b3de3a29005b785bfff67d09b06c77345de  fr_core_news_lg-3.8.0

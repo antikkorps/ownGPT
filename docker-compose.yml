@@ -1,7 +1,6 @@
 # Plateforme IA d'entreprise hybride — démo
-# Démarrage : docker compose up -d                (cœur, ~3,3 Go de RAM mesurés)
+# Démarrage : docker compose up -d                (~2 Go de RAM mesurés)
 #             docker compose --profile tunnel up -d  (+ Cloudflare Tunnel, mode maison)
-#             docker compose --profile sso up -d     (+ Authentik, ~1,5 Go de plus)
 name: owngpt
 
 x-defaults: &defaults
@@ -27,7 +26,6 @@ services:
     environment:
       OPENWEBUI_SITE: ${OPENWEBUI_SITE:?}
       LITELLM_SITE: ${LITELLM_SITE:?}
-      AUTHENTIK_SITE: ${AUTHENTIK_SITE:-http://auth.localhost}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.invalid}
       CADDY_TLS: ${CADDY_TLS:-acme}
       ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1/8 ::1/128 10.0.0.0/8 192.168.0.0/16}
@@ -69,42 +67,6 @@ services:
       resources: { limits: { memory: 512M, pids: 1024 } }
 
   # ---------------------------------------------------------------------------
-  presidio-analyzer:
-    <<: *defaults
-    networks: [donnees]
-    cap_drop: [ALL]
-    build:
-      context: ./presidio
-      args:
-        SPACY_MODEL: ${PRESIDIO_SPACY_MODEL:-fr_core_news_lg}
-    image: owngpt/presidio-analyzer-fr:2.2.366-${PRESIDIO_SPACY_MODEL:-fr_core_news_lg}
-    environment:
-      WORKERS: "1"
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:3000/health', timeout=3)"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 60s
-    deploy:
-      # lg : ~1,2 Go en usage (md : ~500 Mo, limite 1G suffisante)
-      resources: { limits: { memory: "${PRESIDIO_MEMORY_LIMIT:-2G}", pids: 1024 } }
-
-  presidio-anonymizer:
-    <<: *defaults
-    networks: [donnees]
-    cap_drop: [ALL]
-    image: ghcr.io/data-privacy-stack/presidio-anonymizer:2.2.366@sha256:b4d9ec900135c694b84353e03e1abd5127ccdfcd916d32db73002c28f0eaddc7
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:3000/health', timeout=3)"]
-      interval: 15s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    deploy:
-      resources: { limits: { memory: 256M, pids: 1024 } }
-
-  # ---------------------------------------------------------------------------
   litellm:
     <<: *defaults
     networks: [interne, donnees]
@@ -121,8 +83,6 @@ services:
       LITELLM_LOG: ${LITELLM_LOG:-WARNING}
       # Table des prix embarquée : pas d'appel réseau au démarrage, coûts reproductibles.
       LITELLM_LOCAL_MODEL_COST_MAP: "True"
-      PRESIDIO_ANALYZER_API_BASE: http://presidio-analyzer:3000
-      PRESIDIO_ANONYMIZER_API_BASE: http://presidio-anonymizer:3000
       MISTRAL_API_KEY: ${MISTRAL_API_KEY:?}
       SCALEWAY_API_KEY: ${SCALEWAY_API_KEY:-}
       SCALEWAY_MODEL_DEEPSEEK: ${SCALEWAY_MODEL_DEEPSEEK:-scaleway/deepseek-v4-flash}
@@ -137,8 +97,6 @@ services:
       - ./litellm:/app/config:ro
     depends_on:
       postgres: { condition: service_healthy }
-      presidio-analyzer: { condition: service_healthy }
-      presidio-anonymizer: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:4000/health/liveliness', timeout=3)"]
       interval: 15s
@@ -180,8 +138,7 @@ services:
       # RAG : embeddings calculés localement (sentence-transformers, multilingue)
       RAG_EMBEDDING_ENGINE: ""
       RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
-      # Gabarit RAG en français : le gabarit anglais par défaut provoque des faux
-      # positifs du NER français de Presidio (mots anglais pris pour des noms).
+      # Gabarit RAG en français (le gabarit par défaut est en anglais).
       RAG_TEMPLATE: |
         ### Tâche
         Réponds à la question de l'utilisateur à partir du contexte fourni. Cite la source au format [id] uniquement lorsque la balise <source> possède un attribut id.
@@ -229,9 +186,9 @@ services:
       USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS: "false"
       USER_PERMISSIONS_FEATURES_WEB_SEARCH: "false"
       USER_PERMISSIONS_FEATURES_IMAGE_GENERATION: "false"
-      # SSO (profil sso) — vide = désactivé
+      # SSO direct sur l'annuaire de l'entreprise (OIDC : Entra ID, Google, Keycloak…) — vide = désactivé
       ENABLE_OAUTH_SIGNUP: ${ENABLE_OAUTH_SIGNUP:-false}
-      OAUTH_PROVIDER_NAME: ${OAUTH_PROVIDER_NAME:-Authentik}
+      OAUTH_PROVIDER_NAME: ${OAUTH_PROVIDER_NAME:-SSO entreprise}
       OPENID_PROVIDER_URL: ${OPENID_PROVIDER_URL:-}
       OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
       OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
@@ -280,70 +237,8 @@ services:
     deploy:
       resources: { limits: { memory: 128M, pids: 1024 } }
 
-  # ===========================================================================
-  # Profil « sso » : Authentik (fournisseur OIDC pour Open WebUI)
-  # Versions alignées sur https://docs.goauthentik.io/compose.yml (2026.8.5, sans Redis)
-  # ===========================================================================
-  authentik-postgres:
-    <<: *defaults
-    networks: [donnees]
-    cap_drop: [ALL]
-    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
-    profiles: [sso]
-    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
-    environment:
-      POSTGRES_USER: authentik
-      POSTGRES_DB: authentik
-      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:-}
-    volumes:
-      - authentik_pg:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-    deploy:
-      resources: { limits: { memory: 256M, pids: 1024 } }
-
-  authentik-server:
-    <<: *defaults
-    networks: [interne, donnees]
-    cap_drop: [ALL]
-    profiles: [sso]
-    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
-    command: server
-    environment: &authentik-env
-      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-}
-      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
-      AUTHENTIK_POSTGRESQL__NAME: authentik
-      AUTHENTIK_POSTGRESQL__USER: authentik
-      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:-}
-      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
-    volumes:
-      - authentik_data:/data
-    depends_on:
-      authentik-postgres: { condition: service_healthy }
-    deploy:
-      resources: { limits: { memory: 1G, pids: 1024 } }
-
-  authentik-worker:
-    <<: *defaults
-    networks: [interne, donnees]
-    cap_drop: [ALL]
-    profiles: [sso]
-    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
-    command: worker
-    environment: *authentik-env
-    volumes:
-      - authentik_data:/data
-    depends_on:
-      authentik-postgres: { condition: service_healthy }
-    deploy:
-      resources: { limits: { memory: 1G, pids: 1024 } }
-
 networks:
-  # Data tier (PostgreSQL, Presidio): no Internet access at all.
+  # Data tier (PostgreSQL): no Internet access at all.
   donnees:
     driver: bridge
     internal: true
@@ -358,5 +253,3 @@ volumes:
   openwebui_data:
   caddy_data:
   caddy_config:
-  authentik_pg:
-  authentik_data:

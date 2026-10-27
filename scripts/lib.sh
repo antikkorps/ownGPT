@@ -26,7 +26,7 @@ load_env .env
 
 COMPOSE_PROJECT="$(docker compose config --format json | python3 -c 'import json,sys; print(json.load(sys.stdin)["name"])')"
 
-# Test reporting shared by test-presidio.sh and test-models.sh.
+# Test reporting shared by the test-*.sh scripts.
 FAIL=0
 pass() { echo "  ✅ $*"; }
 fail() { echo "  ❌ $*"; FAIL=1; }
@@ -36,12 +36,8 @@ finish() {
 }
 
 # Databases saved by backup.sh / restored by restore.sh, one "service:database:user" per line.
-# Authentik's database is included only while the sso profile is running.
 databases() {
   printf '%s\n' "postgres:openwebui:${POSTGRES_USER}" "postgres:litellm:${POSTGRES_USER}"
-  if docker compose ps --status running --services 2>/dev/null | grep -qx authentik-postgres; then
-    echo "authentik-postgres:authentik:authentik"
-  fi
 }
 
 # archive_mac <file> [salt-hex] — prints "<salt> <HMAC-SHA256>" of a backup archive.
@@ -125,20 +121,4 @@ api_curl() {
 chat_body() {
   python3 -c 'import json,sys; print(json.dumps({"model": sys.argv[1], "max_tokens": 200,
     "messages": [{"role": "user", "content": sys.argv[2]}]}))' "$1" "$2"
-}
-
-# masked_entities <response-id> — guardrail entity counts recorded in LiteLLM's spend log
-# (written asynchronously, hence the polling).
-masked_entities() {
-  [[ "$1" =~ ^[A-Za-z0-9_.:-]+$ ]] || { echo "ID_INVALIDE"; return; }
-  local sql="select metadata->'guardrail_information' from \"LiteLLM_SpendLogs\" where request_id='$1'" out=""
-  for _ in $(seq 1 30); do
-    out="$(docker compose exec -T postgres psql -U "$POSTGRES_USER" -d litellm -tAc "$sql")"
-    [ -n "$out" ] && break
-    sleep 3
-  done
-  [ -n "$out" ] || { echo "JOURNAL_ABSENT"; return; }
-  python3 -c 'import json,sys
-d=json.loads(sys.argv[1] or "[]")
-print(" ".join(sorted({k for g in d for k in (g.get("masked_entity_count") or {})})))' "$out"
 }

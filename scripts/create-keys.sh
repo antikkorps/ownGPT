@@ -17,7 +17,7 @@ upsert_budget() {
 
 upsert_team() {
   local body
-  body="$(printf '{"team_id":"demo","team_alias":"demo","max_budget":9,"budget_duration":"30d","models":%s,"metadata":{"opted_out_global_guardrails":["pii-dev"]}}' "$ADVANCED")"
+  body="$(printf '{"team_id":"demo","team_alias":"demo","max_budget":9,"budget_duration":"30d","models":%s,"metadata":{}}' "$ADVANCED")"
   litellm_api POST /team/new "$body" >/dev/null 2>&1 \
     || litellm_api POST /team/update "$body" >/dev/null
   echo "équipe   demo : 9 \$ / 30 j"
@@ -41,8 +41,7 @@ upsert_budget
 upsert_team
 # Chat: every active model; per-group restriction is enforced by Open WebUI.
 upsert_key openwebui   "$LITELLM_KEY_OPENWEBUI"   "$ADVANCED"   5 '{"usage":"chat"}'
-# Coding agents: person-name masking would corrupt identifiers in code, so these
-# keys swap pii-standard for pii-dev (key metadata overrides the team's opt-out).
-upsert_key opencode    "$LITELLM_KEY_OPENCODE"    "$DEV_MODELS" 2 '{"usage":"dev","opted_out_global_guardrails":["pii-standard"]}'
-upsert_key claude-code "$LITELLM_KEY_CLAUDECODE"  "$DEV_MODELS" 2 '{"usage":"dev","opted_out_global_guardrails":["pii-standard"]}'
+# Coding agents: their own keys and budgets, limited to the code models.
+upsert_key opencode    "$LITELLM_KEY_OPENCODE"    "$DEV_MODELS" 2 '{"usage":"dev"}'
+upsert_key claude-code "$LITELLM_KEY_CLAUDECODE"  "$DEV_MODELS" 2 '{"usage":"dev"}'
 upsert_key automatisation "$LITELLM_KEY_AUTOMATION" '["mistral-small"]' 1 '{"usage":"automatisation"}'

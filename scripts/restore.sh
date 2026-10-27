@@ -23,23 +23,29 @@ fi
 echo "Archive authentifiée."
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:BACKUP_PASSPHRASE -in "$ARCHIVE" | tar -C "$WORK" -xf -
 
+# Every dump must belong to a database of this stack (an archive from an older layout,
+# e.g. with Authentik, would fail half-way with the applications already stopped).
+mapfile -t KNOWN < <(databases | cut -d: -f2)
+for dump in "$WORK"/db-*.sql.gz; do
+  db="$(basename "$dump" .sql.gz)"; db="${db#db-}"
+  printf '%s\n' "${KNOWN[@]}" | grep -qx "$db" \
+    || { echo "ERREUR : l'archive contient la base « $db », inconnue de cette installation. Rien n'a été modifié." >&2; exit 1; }
+done
+
 mapfile -t RUNNING < <(running_services)
 PROFILES=()
-printf '%s\n' "${RUNNING[@]}" | grep -q '^authentik-' && PROFILES+=(--profile sso)
 printf '%s\n' "${RUNNING[@]}" | grep -qx cloudflared && PROFILES+=(--profile tunnel)
 APPS=()
-for s in "${RUNNING[@]}"; do [[ "$s" == postgres || "$s" == authentik-postgres ]] || APPS+=("$s"); done
+for s in "${RUNNING[@]}"; do [ "$s" = postgres ] || APPS+=("$s"); done
 echo "Arrêt des applications (les bases restent démarrées)…"
 [ "${#APPS[@]}" = 0 ] || docker compose "${PROFILES[@]}" stop "${APPS[@]}"
 docker compose up -d --wait postgres
 
 for dump in "$WORK"/db-*.sql.gz; do
   db="$(basename "$dump" .sql.gz)"; db="${db#db-}"
-  if [ "$db" = authentik ]; then service=authentik-postgres user=authentik; else service=postgres user="$POSTGRES_USER"; fi
   echo "Restauration de la base $db…"
-  docker compose --profile sso up -d --wait "$service" >/dev/null
   # One transaction per database: on the first SQL error nothing of it is applied.
-  gunzip -c "$dump" | docker compose exec -T "$service" psql -q -1 -v ON_ERROR_STOP=1 -U "$user" -d "$db" >/dev/null
+  gunzip -c "$dump" | docker compose exec -T postgres psql -q -1 -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$db" >/dev/null
 done
 
 for f in "$WORK"/vol-*.tar.gz; do

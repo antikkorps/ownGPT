@@ -49,11 +49,12 @@
 }
 
 # --- Passerelle API (LiteLLM) -------------------------------------------------
-# Liste blanche : seules les routes de chat (OpenAI + Anthropic) et la liste des modèles
-# sont publiques, et exigent une clé virtuelle. Pas de /v1/completions, /v1/embeddings ni
-# /v1/responses : leur texte n'est pas dans messages[], que le guardrail Presidio analyse.
-# Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…) est de l'administration,
-# réservée à ADMIN_ALLOWED_IPS.
+# Liste blanche : seules les routes utilisées par les clients prévus (chat OpenAI pour
+# Open WebUI / OpenCode / scripts, Anthropic /v1/messages pour Claude Code, liste des
+# modèles) sont publiques, et exigent une clé virtuelle. Surface minimale : pas de
+# /v1/completions, /v1/embeddings, /v1/responses, /v1/files… tant qu'aucun usage ne le
+# demande. Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…) est de
+# l'administration, réservée à ADMIN_ALLOWED_IPS.
 {$LITELLM_SITE} {
 	import securite
 	request_body {
@@ -76,18 +77,5 @@
 	handle {
 		import admin_seulement
 		reverse_proxy litellm:4000
-	}
-}
-
-# --- Authentik (profil sso uniquement ; 502 tant que le profil n'est pas lancé) ---
-{$AUTHENTIK_SITE} {
-	import securite
-	@console path /if/admin /if/admin/*
-	handle @console {
-		import admin_seulement
-		reverse_proxy authentik-server:9000
-	}
-	handle {
-		reverse_proxy authentik-server:9000
 	}
 }

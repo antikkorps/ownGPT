@@ -1,8 +1,8 @@
 # Automatisations → passerelle LiteLLM
 
 Tout script, ETL ou outil no-code appelle la **même** passerelle que le chat, avec la clé
-virtuelle **automatisation** (modèle `mistral-small` seul, budget 1 $/30 j, guardrail
-`pii-standard` : noms, e-mails, téléphones, IBAN masqués ; cartes et NIR bloqués).
+virtuelle **automatisation** (modèle `mistral-small` seul, budget 1 $/30 j, journalisée sans
+contenu).
 
 ```bash
 export OWNGPT_API_URL=https://api.exemple.fr
