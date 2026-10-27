@@ -23,6 +23,7 @@ docker compose --profile sso up -d                         # + Authentik
 ./scripts/create-keys.sh                                   # budgets, team, virtual keys (idempotent)
 docker compose exec openwebui python3 /seed/import_seed.py # groups, users, assistants… (idempotent)
 ./presidio/test-analyzer.sh                                # French analyzer unit test (offline)
+./caddy/test-caddy.sh                                      # route exposure test (offline)
 ./scripts/test-presidio.sh                                 # e2e guardrails (stack up + real Mistral key)
 ./scripts/test-models.sh [--sans-panne]                    # e2e models, tools, /v1/messages, fallback
 ./scripts/litellm-api.sh GET /key/list                     # LiteLLM admin API with the master key
@@ -102,6 +103,10 @@ Security invariants
 - Secrets live only in `.env`; a new secret goes into `.env.example` (empty, commented) and
   `scripts/gen-secrets.sh`.
 - Open WebUI talks only to `http://litellm:4000/v1`, never to a provider directly.
+- On the public API site, Caddy allowlists model routes only; everything else (LiteLLM UI,
+  login, admin API) and the Authentik console require `ADMIN_ALLOWED_IPS`. Only
+  `CLOUDFLARED_IP` may forward a client IP; never allow 172.16.0.0/12 (Docker gateway).
+  Caddy strips `X-OpenWebUI-*` headers from outside. `caddy/test-caddy.sh` must stay green.
 - Keep `store_prompts_in_spend_logs: false` and `turn_off_message_logging: true`: logs hold
   metadata only.
 - Both guardrails stay `default_on`. A new virtual key joins team `demo` (opts out of
