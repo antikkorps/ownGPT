@@ -19,7 +19,7 @@ declare -A SECRETS=(
   [LITELLM_UI_PASSWORD]="$(openssl rand -base64 18 | tr -d '/+=')"
   [WEBUI_SECRET_KEY]="$(hex)"
   [OPENWEBUI_ADMIN_PASSWORD]="$(openssl rand -base64 18 | tr -d '/+=')"
-  [DEMO_USERS_PASSWORD]="Demo-$(openssl rand -hex 4)"
+  [DEMO_USERS_PASSWORD]="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
   [LITELLM_KEY_OPENWEBUI]="sk-$(hex)"
   [LITELLM_KEY_OPENCODE]="sk-$(hex)"
   [LITELLM_KEY_CLAUDECODE]="sk-$(hex)"

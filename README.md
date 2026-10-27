@@ -217,8 +217,11 @@ docker compose exec openwebui python3 /seed/import_seed.py   # groupes, comptes,
    3 prompts `/compte-rendu`, `/mail-relance`, `/resume`, 1 skill « reclamation-client ».
    Import manuel possible : *Workspace → Models / Prompts / Skills → Import* (le skill
    s'importe directement depuis `seed/skills/reclamation-client.md`).
-5. **Comptes de démo** : `standard@demo.example.com` et `avance@demo.example.com`, mot de
-   passe `DEMO_USERS_PASSWORD` du `.env`.
+5. **Comptes de démo** : `standard@demo.example.com` et `avance@demo.example.com`, créés
+   seulement si `CREATE_DEMO_USERS=true` (puis `docker compose up -d openwebui` et relancer
+   l'import), mot de passe `DEMO_USERS_PASSWORD` (≥ 16 caractères, généré). Ils sont joignables
+   depuis Internet : les supprimer après la démo avec
+   `docker compose exec openwebui python3 /seed/import_seed.py --supprimer-comptes-demo`.
 6. **Clés des intégrations** : créées par `create-keys.sh` avec les valeurs `LITELLM_KEY_*`
    du `.env` (reproductible : une réinstallation redonne les mêmes clés).
 

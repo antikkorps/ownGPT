@@ -2,12 +2,14 @@
 
 Run inside the openwebui container (seed/ is mounted read-only at /seed):
     docker compose exec openwebui python3 /seed/import_seed.py
+    docker compose exec openwebui python3 /seed/import_seed.py --supprimer-comptes-demo
 Idempotent: existing items (same id / command / name) are updated or skipped.
 Stdlib only, so it runs in the stock image.
 """
 import glob
 import json
 import os
+import sys
 import time
 
 from owui_client import Api, items
@@ -43,10 +45,27 @@ def sync_groups(api, spec):
     return ids
 
 
+MIN_DEMO_PASSWORD = 16
+
+
+def demo_password():
+    """Shared demo password, only when demo accounts are explicitly enabled.
+
+    They are reachable from the Internet in VPS/tunnel mode, hence the opt-in flag and
+    the minimum length (online guessing)."""
+    if os.environ.get("CREATE_DEMO_USERS", "false").lower() != "true":
+        print("comptes     CREATE_DEMO_USERS≠true : comptes de démo non créés")
+        return None
+    password = os.environ.get("DEMO_USERS_PASSWORD", "")
+    if len(password) < MIN_DEMO_PASSWORD:
+        print(f"comptes     DEMO_USERS_PASSWORD trop court (< {MIN_DEMO_PASSWORD}) : comptes non créés")
+        return None
+    return password
+
+
 def sync_users(api, spec, group_ids):
-    password = os.environ.get("DEMO_USERS_PASSWORD")
+    password = demo_password()
     if not password:
-        print("comptes     DEMO_USERS_PASSWORD absent : comptes de démo non créés")
         return
     users = {u["email"]: u for u in api.call("GET", "/api/v1/users/all").get("users", [])}
     for u in spec["users"]:
@@ -55,6 +74,14 @@ def sync_users(api, spec, group_ids):
         for g in u["groups"]:
             api.call("POST", f"/api/v1/groups/id/{group_ids[g]}/users/add", {"user_ids": [uid]})
         print(f"compte      {u['email']} ({', '.join(u['groups'])})")
+
+
+def remove_demo_users(api, spec):
+    users = {u["email"]: u for u in api.call("GET", "/api/v1/users/all").get("users", [])}
+    for u in spec["users"]:
+        if u["email"] in users:
+            api.call("DELETE", f"/api/v1/users/{users[u['email']]['id']}")
+            print(f"supprimé    {u['email']}")
 
 
 def upsert_model(api, form):
@@ -161,6 +188,9 @@ def main():
     api = Api()
     api.signin()
     spec = json.load(open(os.path.join(SEED, "groups.json"), encoding="utf-8"))
+    if "--supprimer-comptes-demo" in sys.argv:
+        remove_demo_users(api, spec)
+        return
     group_ids = sync_groups(api, spec)
     sync_users(api, spec, group_ids)
     grant_base_models(api, spec, group_ids)

@@ -144,7 +144,8 @@ services:
       WEBUI_ADMIN_EMAIL: ${OPENWEBUI_ADMIN_EMAIL:?}
       WEBUI_ADMIN_PASSWORD: ${OPENWEBUI_ADMIN_PASSWORD:?}
       WEBUI_ADMIN_NAME: ${OPENWEBUI_ADMIN_NAME:-Administrateur}
-      # Lu uniquement par seed/import_seed.py (comptes de démo)
+      # Lus uniquement par seed/import_seed.py (comptes de démo, désactivés par défaut)
+      CREATE_DEMO_USERS: ${CREATE_DEMO_USERS:-false}
       DEMO_USERS_PASSWORD: ${DEMO_USERS_PASSWORD:-}
       DATABASE_URL: postgresql://openwebui:${OPENWEBUI_DB_PASSWORD}@postgres:5432/openwebui
       # Comptes créés par l'admin uniquement

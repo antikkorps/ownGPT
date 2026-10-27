@@ -222,7 +222,8 @@ pour tout modèle.
 - [ ] `docker compose ps` : tous les services `healthy`
 - [ ] `./scripts/test-presidio.sh` → **RÉSULTAT : OK**
 - [ ] `./scripts/test-models.sh` → **RÉSULTAT : OK** (fallback Scaleway inclus s'il est configuré)
-- [ ] Comptes de démo : connexion `standard@demo.example.com` et `avance@demo.example.com`
+- [ ] Comptes de démo : `CREATE_DEMO_USERS=true` + import, connexion `standard@demo.example.com`
+      et `avance@demo.example.com`
 - [ ] Seed présent : 2 assistants, 3 prompts, 1 skill, Knowledge « Procédures internes »
       (`docker compose exec openwebui python3 /seed/import_seed.py` est relançable)
 - [ ] Clés des intégrations testées : `opencode run "dis bonjour"`, `resume_document.py`
@@ -232,3 +233,7 @@ pour tout modèle.
 - [ ] Sauvegarde fraîche : `./scripts/backup.sh`
 - [ ] Plan B réseau : partage de connexion 4G testé (le tunnel n'a besoin d'aucun port ouvert)
 - [ ] Onglets prêts : chat (admin), chat privé (standard), LiteLLM *Logs*, terminal
+
+**Après la démo** : `docker compose exec openwebui python3 /seed/import_seed.py --supprimer-comptes-demo`,
+`CREATE_DEMO_USERS=false`, puis régénérer les clés montrées à l'écran (`LITELLM_KEY_*` vidées dans
+`.env`, `./scripts/gen-secrets.sh --apply`, `./scripts/create-keys.sh`).
