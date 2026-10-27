@@ -4,13 +4,21 @@
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 # load_env <file> — exports KEY=VALUE lines without executing them as shell code
-# (`source .env` would run any $(…) or backquote that ends up in a value).
+# (`source .env` would run any $(…) or backquote that ends up in a value). Values must be
+# read exactly as docker compose reads them, or the scripts would use another key than
+# the containers: unquoted inline comments are stripped, and an unquoted `$` (which
+# compose interpolates) is rejected.
 load_env() {
   local line key value
   while IFS= read -r line || [ -n "$line" ]; do
     [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]] || continue
     key="${BASH_REMATCH[1]}" value="${BASH_REMATCH[2]}"
-    if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then value="${BASH_REMATCH[1]}"; fi
+    if [[ "$value" =~ ^\"(.*)\"$ || "$value" =~ ^\'(.*)\'$ ]]; then
+      value="${BASH_REMATCH[1]}"
+    else
+      value="${value%% \#*}"
+      [[ "$value" != *'$'* ]] || { echo "ERREUR .env : $key contient « \$ » ; mettre la valeur entre apostrophes." >&2; exit 1; }
+    fi
     export "$key=$value"
   done < "$1"
 }
@@ -36,18 +44,23 @@ databases() {
   fi
 }
 
-# archive_mac <file> — HMAC-SHA256 of a backup archive, keyed from BACKUP_PASSPHRASE.
-# Authenticates the archive (CBC encryption alone is malleable); the key is read from
-# the environment, never passed on a command line.
+# archive_mac <file> [salt-hex] — prints "<salt> <HMAC-SHA256>" of a backup archive.
+# Authenticates the archive (CBC encryption alone is malleable). The MAC key is derived
+# with salted PBKDF2 (600k iterations, like the cipher) so the .mac file is no faster
+# oracle for guessing the passphrase. The passphrase is read from the environment.
 archive_mac() {
   python3 -c 'import hashlib,hmac,os,sys
-key = hashlib.sha256(b"ownGPT-backup-mac:" + os.environ["BACKUP_PASSPHRASE"].encode()).digest()
+salt = bytes.fromhex(sys.argv[2]) if len(sys.argv) > 2 else os.urandom(16)
+key = hashlib.pbkdf2_hmac("sha256", os.environ["BACKUP_PASSPHRASE"].encode(), b"ownGPT-mac" + salt, 600000)
 mac = hmac.new(key, digestmod="sha256")
 with open(sys.argv[1], "rb") as f:
     for chunk in iter(lambda: f.read(1 << 20), b""):
         mac.update(chunk)
-print(mac.hexdigest())' "$1"
+print(salt.hex(), mac.hexdigest())' "$@"
 }
+
+# running_services — services currently running (restore.sh puts back exactly these).
+running_services() { docker compose ps --status running --services | sort; }
 
 # litellm_api <METHOD> <PATH> [JSON] — LiteLLM admin API with the master key, from inside
 # the container. The JSON body (it may contain virtual keys) goes through stdin, so it
