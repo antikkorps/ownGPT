@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 for f in caddy/Caddyfile caddy/tls/acme caddy/tls/internal; do [ -f "$f" ] || { echo "ERREUR : $f absent" >&2; exit 1; }; done
 
 CADDY_IMAGE="$(sed -n 's/^ *image: \(caddy:[^ ]*\)$/\1/p' docker-compose.yml)"
-PY_IMAGE=python:3.12.16-alpine
+PY_IMAGE=python:3.12.16-alpine@sha256:44bf3bcc455e0c9ccd912b78f39019b2f7e9d2f4fb47c6d6973c7638a99aff14
 NET="owngpt-caddytest-$$"
 SUBNET=172.31.251.0/24
 CLOUDFLARED_IP=172.31.251.250

@@ -88,7 +88,7 @@ services:
       start_period: 60s
     deploy:
       # lg : ~1,2 Go en usage (md : ~500 Mo, limite 1G suffisante)
-      resources: { limits: { memory: "${PRESIDIO_MEMORY_LIMIT:-2G}" } }
+      resources: { limits: { memory: "${PRESIDIO_MEMORY_LIMIT:-2G}", pids: 1024 } }
 
   presidio-anonymizer:
     <<: *defaults
@@ -287,6 +287,8 @@ services:
   authentik-postgres:
     <<: *defaults
     networks: [donnees]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
     profiles: [sso]
     image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     environment:
@@ -307,6 +309,7 @@ services:
   authentik-server:
     <<: *defaults
     networks: [interne, donnees]
+    cap_drop: [ALL]
     profiles: [sso]
     image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     command: server
@@ -327,6 +330,7 @@ services:
   authentik-worker:
     <<: *defaults
     networks: [interne, donnees]
+    cap_drop: [ALL]
     profiles: [sso]
     image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     command: worker
