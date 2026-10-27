@@ -1,0 +1,61 @@
+# Caddy 2.11 — reverse proxy unique (seuls 80/443 sont exposés sur l'hôte).
+#
+# Le mode est choisi par les adresses de site dans .env :
+#   VPS    : OPENWEBUI_SITE=chat.exemple.fr        → HTTPS Let's Encrypt automatique
+#            LITELLM_SITE=api.exemple.fr
+#   Maison : OPENWEBUI_SITE=http://chat.exemple.fr → HTTP simple ; le HTTPS est assuré par
+#            LITELLM_SITE=http://api.exemple.fr       Cloudflare Tunnel (ou LAN : *.nip.io)
+
+{
+	email {$ACME_EMAIL:admin@example.invalid}
+	admin off
+	servers {
+		# Seul cloudflared (réseau Docker interne) peut transmettre l'IP réelle du client :
+		# un poste du LAN ne peut pas usurper une IP autorisée pour /ui.
+		trusted_proxies static {$DOCKER_SUBNET}
+		client_ip_headers Cf-Connecting-Ip X-Forwarded-For
+	}
+}
+
+(securite) {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+}
+
+# --- Interface de chat (Open WebUI) -------------------------------------------
+{$OPENWEBUI_SITE} {
+	import securite
+	request_body {
+		max_size 50MB
+	}
+	reverse_proxy openwebui:8080
+}
+
+# --- Passerelle API (LiteLLM) : OpenAI /v1/*, Anthropic /v1/messages, UI /ui ----
+# Toutes les routes de modèles exigent une clé virtuelle LiteLLM (Bearer sk-...).
+{$LITELLM_SITE} {
+	import securite
+
+	# Tableau de bord d'administration limité aux IP autorisées (par défaut : toutes).
+	@ui_interdite {
+		path /ui /ui/*
+		not client_ip {$ADMIN_ALLOWED_IPS:0.0.0.0/0 ::/0}
+	}
+	respond @ui_interdite "Accès refusé" 403
+
+	reverse_proxy litellm:4000 {
+		# Streaming (SSE) sans mise en tampon.
+		flush_interval -1
+	}
+}
+
+# --- Authentik (profil sso uniquement ; 502 tant que le profil n'est pas lancé) ---
+{$AUTHENTIK_SITE} {
+	import securite
+	reverse_proxy authentik-server:9000
+}

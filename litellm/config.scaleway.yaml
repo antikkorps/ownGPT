@@ -1,0 +1,40 @@
+# =============================================================================
+# Variante avec Scaleway Generative APIs (région fr-par) — activée par
+# LITELLM_CONFIG=config.scaleway.yaml dans .env.
+# Reprend tout config.yaml (include) et ajoute les modèles Scaleway et le fallback.
+# Base URL (fournisseur natif LiteLLM « scaleway ») : https://api.scaleway.ai/v1
+# Les identifiants de modèles sont surchargeables dans .env : lister les modèles
+# réellement disponibles avec scripts/list-provider-models.sh scaleway
+# =============================================================================
+include:
+  - config.yaml
+
+model_list:
+  - model_name: deepseek                 # groupe avancé — fournisseur interchangeable
+    litellm_params:
+      model: os.environ/SCALEWAY_MODEL_DEEPSEEK
+      api_key: os.environ/SCALEWAY_API_KEY
+    model_info:
+      description: "DeepSeek V4 Flash servi par Scaleway (Paris)"
+
+  - model_name: qwen                     # groupe avancé
+    litellm_params:
+      model: os.environ/SCALEWAY_MODEL_QWEN
+      api_key: os.environ/SCALEWAY_API_KEY
+    model_info:
+      description: "Qwen servi par Scaleway (Paris)"
+
+  # Cible de secours de mistral-small. Non attribuée aux clés : invisible dans
+  # les listes de modèles, utilisée uniquement par le fallback.
+  - model_name: mistral-small-secours
+    litellm_params:
+      model: os.environ/SCALEWAY_MODEL_MISTRAL_SMALL
+      api_key: os.environ/SCALEWAY_API_KEY
+
+router_settings:
+  allowed_fails: 3      # échecs avant mise à l'écart temporaire d'un déploiement
+  cooldown_time: 30
+  # Si Mistral est indisponible (erreur 5xx, timeout, quota), mistral-small bascule
+  # automatiquement sur la même famille de modèle hébergée chez Scaleway.
+  fallbacks:
+    - mistral-small: ["mistral-small-secours"]

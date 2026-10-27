@@ -1,0 +1,30 @@
+{
+  "groups": [
+    {
+      "name": "standard",
+      "description": "Usage courant : mistral-small uniquement ; crée assistants, prompts, skills et bases de connaissances pour soi, sans partage.",
+      "permissions": {}
+    },
+    {
+      "name": "avancé",
+      "description": "Tous les modèles actifs ; peut partager ses assistants, prompts, skills et bases de connaissances avec des groupes (jamais en public).",
+      "permissions": {
+        "sharing": {"models": true, "knowledge": true, "prompts": true, "skills": true}
+      }
+    },
+    {
+      "name": "admin",
+      "description": "Accès aux modèles de test perso (préfixe admin-, désactivés par défaut). Les Tools/Functions restent réservés au rôle administrateur.",
+      "permissions": {}
+    }
+  ],
+  "model_access": {
+    "standard": ["mistral-small"],
+    "avancé": ["mistral-small", "mistral-medium", "glm", "devstral", "deepseek", "qwen"],
+    "admin": ["admin-*"]
+  },
+  "users": [
+    {"name": "Démo Standard", "email": "standard@demo.example.com", "groups": ["standard"]},
+    {"name": "Démo Avancé", "email": "avance@demo.example.com", "groups": ["avancé"]}
+  ]
+}

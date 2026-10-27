@@ -1,0 +1,9 @@
+# Simulated Mistral outage: api.mistral.ai resolves to localhost inside LiteLLM, so
+# every Mistral call fails with a connection error and the router falls back.
+# Used by test-models.sh, and usable live during the demo:
+#   docker compose -f docker-compose.yml -f scripts/panne-mistral.yml up -d --wait litellm
+#   ... then back to normal: docker compose up -d --wait litellm
+services:
+  litellm:
+    extra_hosts:
+      - "api.mistral.ai:127.0.0.1"

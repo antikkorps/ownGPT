@@ -1,0 +1,60 @@
+{
+  "name": "Passerelle IA — résumé de document (exemple)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "resume-document",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "name": "Webhook (texte à résumer)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.OWNGPT_API_URL }}/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=Bearer {{ $env.OWNGPT_AUTOMATION_KEY }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ model: 'mistral-small', max_tokens: 500, messages: [{ role: 'user', content: 'Résume pour un comité de direction (essentiel, points clés, actions) :\\n\\n' + $json.body.texte }] }) }}",
+        "options": { "timeout": 120000 }
+      },
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "name": "Passerelle LiteLLM",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [260, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "r1", "name": "resume", "value": "={{ $json.choices[0].message.content }}", "type": "string" },
+            { "id": "r2", "name": "tokens", "value": "={{ $json.usage.total_tokens }}", "type": "number" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "name": "Extraire le résumé",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [520, 0]
+    }
+  ],
+  "connections": {
+    "Webhook (texte à résumer)": { "main": [[{ "node": "Passerelle LiteLLM", "type": "main", "index": 0 }]] },
+    "Passerelle LiteLLM": { "main": [[{ "node": "Extraire le résumé", "type": "main", "index": 0 }]] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

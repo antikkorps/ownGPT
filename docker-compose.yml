@@ -1,0 +1,324 @@
+# Plateforme IA d'entreprise hybride — démo
+# Démarrage : docker compose up -d                (cœur, ~3,3 Go de RAM mesurés)
+#             docker compose --profile tunnel up -d  (+ Cloudflare Tunnel, mode maison)
+#             docker compose --profile sso up -d     (+ Authentik, ~1,5 Go de plus)
+name: owngpt
+
+x-defaults: &defaults
+  restart: unless-stopped
+  networks: [interne]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  # ---------------------------------------------------------------------------
+  caddy:
+    <<: *defaults
+    image: caddy:2.11.7-alpine
+    ports:
+      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
+      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
+      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443/udp"
+    environment:
+      OPENWEBUI_SITE: ${OPENWEBUI_SITE:?}
+      LITELLM_SITE: ${LITELLM_SITE:?}
+      AUTHENTIK_SITE: ${AUTHENTIK_SITE:-http://auth.localhost}
+      ACME_EMAIL: ${ACME_EMAIL:-admin@example.invalid}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-0.0.0.0/0 ::/0}
+      DOCKER_SUBNET: ${DOCKER_SUBNET:-172.31.250.0/24}
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      openwebui: { condition: service_healthy }
+      litellm: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # ---------------------------------------------------------------------------
+  postgres:
+    <<: *defaults
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      OPENWEBUI_DB_PASSWORD: ${OPENWEBUI_DB_PASSWORD:?}
+      LITELLM_DB_PASSWORD: ${LITELLM_DB_PASSWORD:?}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d litellm && pg_isready -U $${POSTGRES_USER} -d openwebui"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources: { limits: { memory: 512M } }
+
+  # ---------------------------------------------------------------------------
+  presidio-analyzer:
+    <<: *defaults
+    build:
+      context: ./presidio
+      args:
+        SPACY_MODEL: ${PRESIDIO_SPACY_MODEL:-fr_core_news_lg}
+    image: owngpt/presidio-analyzer-fr:2.2.366-${PRESIDIO_SPACY_MODEL:-fr_core_news_lg}
+    environment:
+      WORKERS: "1"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:3000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    deploy:
+      # lg : ~1,2 Go en usage (md : ~500 Mo, limite 1G suffisante)
+      resources: { limits: { memory: "${PRESIDIO_MEMORY_LIMIT:-2G}" } }
+
+  presidio-anonymizer:
+    <<: *defaults
+    image: ghcr.io/data-privacy-stack/presidio-anonymizer:2.2.366
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:3000/health', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources: { limits: { memory: 256M } }
+
+  # ---------------------------------------------------------------------------
+  litellm:
+    <<: *defaults
+    image: ghcr.io/berriai/litellm:v1.106.4
+    command: ["--config", "/app/config/${LITELLM_CONFIG:-config.yaml}", "--port", "4000", "--num_workers", "1"]
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@postgres:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:?}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:?}
+      UI_USERNAME: ${LITELLM_UI_USERNAME:-admin}
+      UI_PASSWORD: ${LITELLM_UI_PASSWORD:?}
+      LITELLM_MODE: PRODUCTION
+      LITELLM_LOG: ${LITELLM_LOG:-WARNING}
+      # Table des prix embarquée : pas d'appel réseau au démarrage, coûts reproductibles.
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+      PRESIDIO_ANALYZER_API_BASE: http://presidio-analyzer:3000
+      PRESIDIO_ANONYMIZER_API_BASE: http://presidio-anonymizer:3000
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:?}
+      SCALEWAY_API_KEY: ${SCALEWAY_API_KEY:-}
+      SCALEWAY_MODEL_DEEPSEEK: ${SCALEWAY_MODEL_DEEPSEEK:-scaleway/deepseek-v4-flash}
+      SCALEWAY_MODEL_QWEN: ${SCALEWAY_MODEL_QWEN:-scaleway/qwen3.6-35b-a3b}
+      SCALEWAY_MODEL_MISTRAL_SMALL: ${SCALEWAY_MODEL_MISTRAL_SMALL:-scaleway/mistral-small-3.2-24b-instruct-2506}
+      # Modèles commentés dans config.yaml (non visibles en démo)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY:-}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    volumes:
+      - ./litellm:/app/config:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      presidio-analyzer: { condition: service_healthy }
+      presidio-anonymizer: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request as u; u.urlopen('http://localhost:4000/health/liveliness', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      start_period: 90s
+    deploy:
+      resources: { limits: { memory: 1536M } }
+
+  # ---------------------------------------------------------------------------
+  openwebui:
+    <<: *defaults
+    image: ghcr.io/open-webui/open-webui:v0.12.4
+    environment:
+      WEBUI_NAME: ${WEBUI_NAME:-IA Société Exemple}
+      WEBUI_URL: ${OPENWEBUI_URL:?}
+      WEBUI_SECRET_KEY: ${WEBUI_SECRET_KEY:?}
+      # Compte administrateur créé au premier démarrage (aucune inscription publique)
+      WEBUI_ADMIN_EMAIL: ${OPENWEBUI_ADMIN_EMAIL:?}
+      WEBUI_ADMIN_PASSWORD: ${OPENWEBUI_ADMIN_PASSWORD:?}
+      WEBUI_ADMIN_NAME: ${OPENWEBUI_ADMIN_NAME:-Administrateur}
+      # Lu uniquement par seed/import_seed.py (comptes de démo)
+      DEMO_USERS_PASSWORD: ${DEMO_USERS_PASSWORD:-}
+      DATABASE_URL: postgresql://openwebui:${OPENWEBUI_DB_PASSWORD}@postgres:5432/openwebui
+      # Comptes créés par l'admin uniquement
+      ENABLE_SIGNUP: "false"
+      DEFAULT_USER_ROLE: pending
+      ENABLE_API_KEYS: "false"
+      # UNIQUE connexion modèle : LiteLLM (jamais les fournisseurs en direct)
+      ENABLE_OLLAMA_API: "false"
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: http://litellm:4000/v1
+      OPENAI_API_KEY: ${LITELLM_KEY_OPENWEBUI:?}
+      ENABLE_FORWARD_USER_INFO_HEADERS: "true"
+      DEFAULT_MODELS: mistral-small
+      # RAG : embeddings calculés localement (sentence-transformers, multilingue)
+      RAG_EMBEDDING_ENGINE: ""
+      RAG_EMBEDDING_MODEL: ${RAG_EMBEDDING_MODEL:-sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2}
+      # Gabarit RAG en français : le gabarit anglais par défaut provoque des faux
+      # positifs du NER français de Presidio (mots anglais pris pour des noms).
+      RAG_TEMPLATE: |
+        ### Tâche
+        Réponds à la question de l'utilisateur à partir du contexte fourni. Cite la source au format [id] uniquement lorsque la balise <source> possède un attribut id.
+
+        ### Consignes
+        - Si la réponse ne figure pas dans le contexte, dis-le clairement.
+        - En cas de doute, demande une précision.
+        - Réponds en français, de façon claire et concise.
+        - N'utilise pas de balises XML dans ta réponse.
+
+        <context>
+        {{CONTEXT}}
+        </context>
+      # Tâches annexes coûteuses en tokens, inutiles pour la démo (le titre reste généré)
+      ENABLE_FOLLOW_UP_GENERATION: "false"
+      ENABLE_TAGS_GENERATION: "false"
+      ENABLE_WEB_SEARCH: "false"
+      ENABLE_COMMUNITY_SHARING: "false"
+      ENABLE_EVALUATION_ARENA_MODELS: "false"
+      ENABLE_DIRECT_CONNECTIONS: "false"
+      # Permissions par défaut = groupe « standard » (le plus restrictif).
+      # Open WebUI combine les droits en OU : un groupe ne peut qu'en AJOUTER.
+      USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS: "true"
+      USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ACCESS: "true"
+      USER_PERMISSIONS_WORKSPACE_PROMPTS_ACCESS: "true"
+      USER_PERMISSIONS_WORKSPACE_SKILLS_ACCESS: "true"
+      USER_PERMISSIONS_WORKSPACE_TOOLS_ACCESS: "false"
+      USER_PERMISSIONS_WORKSPACE_MODELS_IMPORT: "true"
+      USER_PERMISSIONS_WORKSPACE_PROMPTS_IMPORT: "true"
+      USER_PERMISSIONS_WORKSPACE_SKILLS_IMPORT: "true"
+      USER_PERMISSIONS_WORKSPACE_TOOLS_IMPORT: "false"
+      USER_PERMISSIONS_WORKSPACE_MODELS_ALLOW_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ALLOW_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_PROMPTS_ALLOW_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_SKILLS_ALLOW_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_TOOLS_ALLOW_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_MODELS_ALLOW_PUBLIC_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_KNOWLEDGE_ALLOW_PUBLIC_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_PROMPTS_ALLOW_PUBLIC_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_SKILLS_ALLOW_PUBLIC_SHARING: "false"
+      USER_PERMISSIONS_WORKSPACE_TOOLS_ALLOW_PUBLIC_SHARING: "false"
+      USER_PERMISSIONS_FEATURES_DIRECT_TOOL_SERVERS: "false"
+      USER_PERMISSIONS_FEATURES_WEB_SEARCH: "false"
+      USER_PERMISSIONS_FEATURES_IMAGE_GENERATION: "false"
+      # SSO (profil sso) — vide = désactivé
+      ENABLE_OAUTH_SIGNUP: ${ENABLE_OAUTH_SIGNUP:-false}
+      OAUTH_PROVIDER_NAME: ${OAUTH_PROVIDER_NAME:-Authentik}
+      OPENID_PROVIDER_URL: ${OPENID_PROVIDER_URL:-}
+      OAUTH_CLIENT_ID: ${OAUTH_CLIENT_ID:-}
+      OAUTH_CLIENT_SECRET: ${OAUTH_CLIENT_SECRET:-}
+      OAUTH_SCOPES: openid email profile
+      # false : sinon un compte SSO à e-mail non vérifié pourrait reprendre un compte local (admin)
+      OAUTH_MERGE_ACCOUNTS_BY_EMAIL: ${OAUTH_MERGE_ACCOUNTS_BY_EMAIL:-false}
+      ENABLE_OAUTH_GROUP_MANAGEMENT: ${ENABLE_OAUTH_GROUP_MANAGEMENT:-false}
+      OAUTH_GROUPS_CLAIM: groups
+      OAUTH_CODE_CHALLENGE_METHOD: S256
+      ANONYMIZED_TELEMETRY: "false"
+      SCARF_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "true"
+    volumes:
+      - openwebui_data:/app/backend/data
+      - ./seed:/seed:ro
+    depends_on:
+      postgres: { condition: service_healthy }
+      litellm: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 20
+      # premier démarrage : téléchargement du modèle d'embeddings (~470 Mo)
+      start_period: 180s
+    deploy:
+      resources: { limits: { memory: 2560M } }
+
+  # ===========================================================================
+  # Profil « tunnel » : Cloudflare Tunnel (serveur maison, aucune IP exposée)
+  # ===========================================================================
+  cloudflared:
+    <<: *defaults
+    profiles: [tunnel]
+    image: cloudflare/cloudflared:2026.10.4
+    command: ["tunnel", "--no-autoupdate", "run"]
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    depends_on:
+      caddy: { condition: service_started }
+    deploy:
+      resources: { limits: { memory: 128M } }
+
+  # ===========================================================================
+  # Profil « sso » : Authentik (fournisseur OIDC pour Open WebUI)
+  # Versions alignées sur https://docs.goauthentik.io/compose.yml (2026.8.5, sans Redis)
+  # ===========================================================================
+  authentik-postgres:
+    <<: *defaults
+    profiles: [sso]
+    image: postgres:16.15-alpine
+    environment:
+      POSTGRES_USER: authentik
+      POSTGRES_DB: authentik
+      POSTGRES_PASSWORD: ${AUTHENTIK_DB_PASSWORD:-}
+    volumes:
+      - authentik_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authentik -d authentik"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources: { limits: { memory: 256M } }
+
+  authentik-server:
+    <<: *defaults
+    profiles: [sso]
+    image: ghcr.io/goauthentik/server:2026.8.5
+    command: server
+    environment: &authentik-env
+      AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-}
+      AUTHENTIK_POSTGRESQL__HOST: authentik-postgres
+      AUTHENTIK_POSTGRESQL__NAME: authentik
+      AUTHENTIK_POSTGRESQL__USER: authentik
+      AUTHENTIK_POSTGRESQL__PASSWORD: ${AUTHENTIK_DB_PASSWORD:-}
+      AUTHENTIK_ERROR_REPORTING__ENABLED: "false"
+    volumes:
+      - authentik_data:/data
+    depends_on:
+      authentik-postgres: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+  authentik-worker:
+    <<: *defaults
+    profiles: [sso]
+    image: ghcr.io/goauthentik/server:2026.8.5
+    command: worker
+    environment: *authentik-env
+    volumes:
+      - authentik_data:/data
+    depends_on:
+      authentik-postgres: { condition: service_healthy }
+    deploy:
+      resources: { limits: { memory: 1G } }
+
+networks:
+  interne:
+    driver: bridge
+    ipam:
+      # Fixed so that Caddy trusts forwarded client IPs only from this network (cloudflared).
+      config: [{ subnet: "${DOCKER_SUBNET:-172.31.250.0/24}" }]
+
+volumes:
+  pg_data:
+  openwebui_data:
+  caddy_data:
+  caddy_config:
+  authentik_pg:
+  authentik_data:

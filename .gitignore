@@ -1,0 +1,37 @@
+# --- Secrets: never commit (provider keys, master key, passwords) ---
+.env
+.env.*
+!.env.example
+secrets*.txt
+*.pem
+*.key
+integrations/**/.env
+
+# --- Backups (encrypted, but still company data) ---
+backups/
+*.tar.enc
+*.tar.enc.sha256
+
+# --- Local overrides (machine-specific ports, test models, extra_hosts) ---
+docker-compose.override.yml
+compose.override.yml
+
+# --- Local tool settings that may hold a gateway key ---
+.claude/settings.local.json
+opencode.local.json
+
+# --- Python ---
+__pycache__/
+*.pyc
+.venv/
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# --- Logs ---
+*.log

@@ -1,0 +1,5 @@
+{
+  "command": "compte-rendu",
+  "name": "Compte rendu de réunion",
+  "content": "Rédige le compte rendu de la réunion « {{objet}} » du {{date}}.\nParticipants : {{participants}}\n\nNotes brutes :\n{{notes}}\n\nFormat : Contexte, Points abordés, Décisions (tableau), Actions (tableau Action / Responsable / Échéance), Points en suspens. Style factuel, 400 mots maximum, n'invente rien."
+}

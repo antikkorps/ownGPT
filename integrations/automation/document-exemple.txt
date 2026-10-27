@@ -1,0 +1,19 @@
+NOTE INTERNE (FICTIVE) — Direction des opérations — Société Exemple SAS
+
+Objet : bilan du pilote « traitement des réclamations » — T3 2026
+
+Le pilote mené de juillet à septembre sur l'agence de Lyon a porté sur 1 240 réclamations
+clients. Le délai moyen de première réponse est passé de 4,2 jours à 1,6 jour. Le taux de
+réclamations clôturées au premier contact atteint 68 % (contre 51 % avant le pilote).
+
+Trois difficultés ont été relevées : la qualification des réclamations « facturation »
+reste manuelle et représente 35 % du temps de traitement ; les modèles de réponse ne
+couvrent pas les cas de retard de livraison supérieurs à 15 jours ; enfin, deux
+conseillers sur huit n'ont pas suivi la formation initiale.
+
+Recommandations : étendre le pilote aux agences de Lille et Bordeaux au T1 2027,
+compléter les modèles de réponse avant fin novembre (responsable : service qualité),
+organiser une session de formation de rattrapage en décembre (responsable : RH).
+
+Budget demandé pour l'extension : 18 000 € (licences et formation), à valider au CODIR
+de novembre.

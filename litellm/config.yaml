@@ -1,0 +1,159 @@
+# =============================================================================
+# LiteLLM — passerelle unique pour TOUS les usages (chat, agents de code, automatisations)
+# Version vérifiée : ghcr.io/berriai/litellm:v1.106.4
+#
+# Fichier de base (Mistral uniquement). Pour activer Scaleway : LITELLM_CONFIG=config.scaleway.yaml
+# dans .env (ce fichier est alors inclus et complété).
+#
+# Groupes d'accès (appliqués par les clés virtuelles, voir scripts/create-keys.sh) :
+#   standard : mistral-small
+#   avancé   : mistral-small, mistral-medium, glm, devstral (+ deepseek, qwen si Scaleway)
+#   admin    : modèles de test perso (commentés ci-dessous)
+#
+# Appel d'outils (function calling) : tous les modèles actifs sont marqués
+# supports_function_calling=true dans la table de LiteLLM v1.106.4 ; vérification réelle
+# par scripts/test-models.sh (requête avec un outil).
+# =============================================================================
+
+model_list:
+  # --- Mistral AI (La Plateforme, hébergement UE) --------------------------
+  - model_name: mistral-small            # modèle par défaut, groupe standard
+    litellm_params:
+      model: mistral/mistral-small-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    model_info:
+      description: "Mistral Small — rapide et économique, usage courant"
+
+  - model_name: mistral-medium           # groupe avancé
+    litellm_params:
+      model: mistral/mistral-medium-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    model_info:
+      description: "Mistral Medium — rédaction et analyse plus exigeantes"
+
+  - model_name: glm                      # groupe avancé, conseillé pour le code
+    litellm_params:
+      # Z.ai GLM 5.3 servi par Mistral sur son infrastructure UE.
+      # zai-glm-5-2 est retiré le 31/10/2026 ; vérifier l'id avec scripts/list-provider-models.sh
+      model: mistral/zai-glm-5-3
+      api_key: os.environ/MISTRAL_API_KEY
+    model_info:
+      description: "GLM 5.3 (Z.ai) servi par Mistral en UE — code et agents"
+
+  - model_name: devstral                 # groupe avancé, modèle de code Mistral
+    litellm_params:
+      # Devstral 2 (devstral-2512) est annoncé en fin de vie par Mistral au profit de
+      # Medium 3.5 : si devstral-latest n'est plus servi, remplacer par
+      # mistral/mistral-medium-latest (test-models.sh le signale).
+      model: mistral/devstral-latest
+      api_key: os.environ/MISTRAL_API_KEY
+    model_info:
+      description: "Devstral — modèle de code Mistral"
+
+  # --- NON visibles en démo : décommenter pour un usage ponctuel ------------
+  # Mistral Large 4 (v26.10) — ~0,68 $ / 2,09 $ par M tokens (entrée/sortie, table LiteLLM ;
+  # vérifier sur https://mistral.ai/pricing)
+  # - model_name: mistral-large
+  #   litellm_params:
+  #     model: mistral/mistral-large-4
+  #     api_key: os.environ/MISTRAL_API_KEY
+
+  # Anthropic (Claude) — pour un éventuel groupe « dev » utilisant Claude Code avec de
+  # vrais modèles Claude (DPA Anthropic à signer, hébergement hors UE par défaut).
+  # - model_name: claude-sonnet
+  #   litellm_params:
+  #     model: anthropic/claude-sonnet-5-5
+  #     api_key: os.environ/ANTHROPIC_API_KEY
+
+  # OpenRouter — agrégateur, utile pour tester un modèle avant contrat direct.
+  # - model_name: openrouter-test
+  #   litellm_params:
+  #     model: openrouter/<fournisseur>/<modele>
+  #     api_key: os.environ/OPENROUTER_API_KEY
+
+  # ⚠️ GROUPE ADMIN UNIQUEMENT — tests perso.
+  # ⚠️ DONNÉES STOCKÉES EN CHINE : NE JAMAIS UTILISER AVEC DES DONNÉES RÉELLES.
+  # - model_name: admin-kimi
+  #   litellm_params:
+  #     model: moonshot/kimi-k2.5
+  #     api_key: os.environ/MOONSHOT_API_KEY
+  # - model_name: admin-deepseek
+  #   litellm_params:
+  #     model: deepseek/deepseek-chat
+  #     api_key: os.environ/DEEPSEEK_API_KEY
+
+# =============================================================================
+# Guardrails Presidio (français), en mode pre_call : le texte est analysé et masqué
+# AVANT de partir chez le fournisseur ; le fournisseur, les journaux et la base ne
+# voient que la version masquée.
+#
+# Deux variantes, toutes deux default_on, chacune en UNE seule passe :
+#   pii-standard : chat et automatisations (noms de personnes masqués)
+#   pii-dev      : agents de code — PERSON désactivé (il corromprait des identifiants
+#                  comme « class CamilleDurand »), tout le reste identique
+# Sélection sans LiteLLM Enterprise via la métadonnée opted_out_global_guardrails :
+#   équipe « demo »          → se retire de pii-dev   (donc pii-standard)
+#   clés opencode/claude-code → se retirent de pii-standard (donc pii-dev)
+# Une clé créée sans métadonnée passe par les deux : protégée par défaut.
+# Si Presidio est injoignable, les requêtes sont refusées (fail-closed dès qu'une
+# action BLOCK est configurée).
+# =============================================================================
+guardrails:
+  - guardrail_name: pii-standard
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      default_on: true
+      presidio_language: fr
+      presidio_filter_scope: input   # entrée seulement : ne pas masquer les réponses du modèle
+      pii_entities_config:
+        CREDIT_CARD: BLOCK
+        FR_NIR: BLOCK                # reconnaisseur personnalisé (presidio/conf)
+        IBAN_CODE: MASK
+        EMAIL_ADDRESS: MASK
+        PHONE_NUMBER: MASK
+        PERSON: MASK
+      presidio_score_thresholds:
+        PERSON: 0.6                  # limite les faux positifs du NER spaCy
+
+  - guardrail_name: pii-dev
+    litellm_params:
+      guardrail: presidio
+      mode: pre_call
+      default_on: true
+      presidio_language: fr
+      presidio_filter_scope: input   # entrée seulement : ne pas masquer les réponses du modèle
+      pii_entities_config:
+        CREDIT_CARD: BLOCK
+        FR_NIR: BLOCK
+        IBAN_CODE: MASK
+        EMAIL_ADDRESS: MASK
+        PHONE_NUMBER: MASK
+
+litellm_settings:
+  drop_params: true                  # ignore les paramètres non supportés par un fournisseur
+  # Journaux : métadonnées uniquement (clé, utilisateur, modèle, tokens, coût, résultat
+  # des guardrails). Le contenu des prompts/réponses n'est envoyé à aucun callback.
+  turn_off_message_logging: true
+  # Plafond GLOBAL de la passerelle, en USD (LiteLLM compte en dollars) :
+  # 9 $ ≈ 8 € → reste dans l'allocation gratuite Mistral. Production : ~165 $ (≈150 €).
+  max_budget: 9
+  budget_duration: 30d
+  # Budget par défaut de chaque utilisateur Open WebUI (créé par scripts/create-keys.sh)
+  max_end_user_budget_id: budget-utilisateur
+  request_timeout: 300
+  num_retries: 2
+  # Pas de router_settings ici : l'include de LiteLLM ÉCRASE les clés non-listes, ils
+  # effaceraient ceux de config.scaleway.yaml (fallbacks).
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/DATABASE_URL
+  store_model_in_db: false           # la config fait foi (reproductible)
+  store_prompts_in_spend_logs: false # jamais de contenu en base
+  # Identité de l'utilisateur Open WebUI (ENABLE_FORWARD_USER_INFO_HEADERS) :
+  # suivi des coûts et budget par personne, et non seulement par clé.
+  user_header_mappings:
+    - header_name: X-OpenWebUI-User-Email
+      litellm_user_role: customer
+  maximum_spend_logs_retention_period: 90d

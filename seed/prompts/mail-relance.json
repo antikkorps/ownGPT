@@ -1,0 +1,5 @@
+{
+  "command": "mail-relance",
+  "name": "Mail de relance",
+  "content": "Rédige un e-mail de relance courtois mais ferme.\nDestinataire : {{destinataire}}\nObjet de la relance : {{objet}}\nDate de la première demande : {{date_demande}}\nNouvelle échéance souhaitée : {{echeance}}\nTon : {{ton}} (cordial / ferme / dernière relance)\n\nContraintes : objet d'e-mail explicite, 120 mots maximum, une seule demande claire, rappel factuel de l'historique, formule de politesse standard, vouvoiement."
+}

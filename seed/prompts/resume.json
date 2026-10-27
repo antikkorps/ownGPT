@@ -1,0 +1,5 @@
+{
+  "command": "resume",
+  "name": "Résumé de document",
+  "content": "Résume le texte ci-dessous pour {{public}} en {{longueur}}.\n\n{{texte}}\n\nStructure : une phrase d'accroche qui donne l'essentiel, puis les points clés en puces, puis « À retenir » (une phrase). Garde les chiffres et dates exacts, n'ajoute aucune information absente du texte."
+}
