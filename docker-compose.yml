@@ -17,16 +17,16 @@ services:
     <<: *defaults
     image: caddy:2.11.7-alpine
     ports:
-      - "${HTTP_BIND:-0.0.0.0}:${HTTP_PORT:-80}:80"
-      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443"
-      - "${HTTP_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:443/udp"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-80}:80"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443"
+      - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443/udp"
     environment:
       OPENWEBUI_SITE: ${OPENWEBUI_SITE:?}
       LITELLM_SITE: ${LITELLM_SITE:?}
       AUTHENTIK_SITE: ${AUTHENTIK_SITE:-http://auth.localhost}
       ACME_EMAIL: ${ACME_EMAIL:-admin@example.invalid}
-      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-0.0.0.0/0 ::/0}
-      DOCKER_SUBNET: ${DOCKER_SUBNET:-172.31.250.0/24}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1/8 ::1/128 10.0.0.0/8 192.168.0.0/16}
+      CLOUDFLARED_IP: ${CLOUDFLARED_IP:-172.31.250.250}
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -246,6 +246,10 @@ services:
     profiles: [tunnel]
     image: cloudflare/cloudflared:2026.10.4
     command: ["tunnel", "--no-autoupdate", "run"]
+    networks:
+      interne:
+        # Fixed: the only address Caddy accepts a forwarded client IP from.
+        ipv4_address: ${CLOUDFLARED_IP:-172.31.250.250}
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
     depends_on:
@@ -312,7 +316,7 @@ networks:
   interne:
     driver: bridge
     ipam:
-      # Fixed so that Caddy trusts forwarded client IPs only from this network (cloudflared).
+      # Fixed so that cloudflared gets a known address (CLOUDFLARED_IP must be inside it).
       config: [{ subnet: "${DOCKER_SUBNET:-172.31.250.0/24}" }]
 
 volumes:

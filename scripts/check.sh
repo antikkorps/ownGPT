@@ -6,8 +6,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-SHELL_FILES=(scripts/*.sh presidio/*.sh postgres/init/*.sh integrations/automation/*.sh)
-PY_FILES=(seed/*.py integrations/automation/*.py presidio/recognizers/*.py)
+SHELL_FILES=(scripts/*.sh presidio/*.sh caddy/*.sh postgres/init/*.sh integrations/automation/*.sh)
+PY_FILES=(seed/*.py integrations/automation/*.py presidio/recognizers/*.py caddy/test/*.py)
 JSON_FILES=(seed/*.json seed/*/*.json integrations/*/*.json)
 
 echo "== Syntaxe Bash"
@@ -30,6 +30,9 @@ else
   { cat .env.example; ./scripts/gen-secrets.sh; echo "MISTRAL_API_KEY=ci-dummy"; } > "$env_file"
   docker compose --env-file "$env_file" --profile sso --profile tunnel config -q
 fi
+
+echo "== Caddy (exposition des routes)"
+./caddy/test-caddy.sh
 
 if [ "${1:-}" != --light ]; then
   echo "== Presidio (analyseur français)"

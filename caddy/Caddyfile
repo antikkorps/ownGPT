@@ -10,11 +10,17 @@
 	email {$ACME_EMAIL:admin@example.invalid}
 	admin off
 	servers {
-		# Seul cloudflared (réseau Docker interne) peut transmettre l'IP réelle du client :
-		# un poste du LAN ne peut pas usurper une IP autorisée pour /ui.
-		trusted_proxies static {$DOCKER_SUBNET}
+		# Seul cloudflared (IP fixe sur le réseau Docker) peut transmettre l'IP réelle du
+		# client : ni un poste du LAN ni la passerelle Docker ne peuvent usurper une IP admin.
+		trusted_proxies static {$CLOUDFLARED_IP}
 		client_ip_headers Cf-Connecting-Ip X-Forwarded-For
 	}
+}
+
+# Routes d'administration : refusées hors des IP autorisées (ADMIN_ALLOWED_IPS).
+(admin_seulement) {
+	@hors_admin not client_ip {$ADMIN_ALLOWED_IPS}
+	respond @hors_admin "Accès refusé" 403
 }
 
 (securite) {
@@ -36,26 +42,46 @@
 	reverse_proxy openwebui:8080
 }
 
-# --- Passerelle API (LiteLLM) : OpenAI /v1/*, Anthropic /v1/messages, UI /ui ----
-# Toutes les routes de modèles exigent une clé virtuelle LiteLLM (Bearer sk-...).
+# --- Passerelle API (LiteLLM) -------------------------------------------------
+# Liste blanche : seules les routes de chat (OpenAI + Anthropic) et la liste des modèles
+# sont publiques, et exigent une clé virtuelle. Pas de /v1/completions, /v1/embeddings ni
+# /v1/responses : leur texte n'est pas dans messages[], que le guardrail Presidio analyse.
+# Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…) est de l'administration,
+# réservée à ADMIN_ALLOWED_IPS.
 {$LITELLM_SITE} {
 	import securite
-
-	# Tableau de bord d'administration limité aux IP autorisées (par défaut : toutes).
-	@ui_interdite {
-		path /ui /ui/*
-		not client_ip {$ADMIN_ALLOWED_IPS:0.0.0.0/0 ::/0}
+	request_body {
+		max_size 20MB
 	}
-	respond @ui_interdite "Accès refusé" 403
+	# L'identité de l'utilisateur n'est crue que venant d'Open WebUI, qui parle à LiteLLM en
+	# direct sur le réseau interne ; les en-têtes de contrôle LiteLLM (tags, désactivation de
+	# callbacks, id utilisateur…) ne servent à aucun client légitime. Retirés sur tout le site.
+	request_header -X-OpenWebUI-*
+	request_header -X-LiteLLM-*
 
-	reverse_proxy litellm:4000 {
-		# Streaming (SSE) sans mise en tampon.
-		flush_interval -1
+	@modeles path /v1/chat/completions /chat/completions /v1/messages /v1/messages/* /v1/models /v1/models/* /models /health/liveliness /health/readiness
+	handle @modeles {
+		reverse_proxy litellm:4000 {
+			# Streaming (SSE) sans mise en tampon.
+			flush_interval -1
+		}
+	}
+
+	handle {
+		import admin_seulement
+		reverse_proxy litellm:4000
 	}
 }
 
 # --- Authentik (profil sso uniquement ; 502 tant que le profil n'est pas lancé) ---
 {$AUTHENTIK_SITE} {
 	import securite
-	reverse_proxy authentik-server:9000
+	@console path /if/admin /if/admin/*
+	handle @console {
+		import admin_seulement
+		reverse_proxy authentik-server:9000
+	}
+	handle {
+		reverse_proxy authentik-server:9000
+	}
 }
