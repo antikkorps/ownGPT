@@ -221,6 +221,7 @@ pour tout modèle.
 ## Checklist « veille de démo »
 
 - [ ] Serveur à jour : `sudo apt update && sudo apt upgrade -y`, redémarrage si noyau mis à jour
+- [ ] Avis de sécurité Open WebUI et LiteLLM lus, PR Dependabot traitées (README §9)
 - [ ] `docker compose ps` : tous les services `healthy`
 - [ ] `./scripts/test-hardening.sh` et `./scripts/test-backup.sh` → **RÉSULTAT : OK**
 - [ ] `./scripts/test-models.sh` → **RÉSULTAT : OK** (fallback Scaleway inclus s'il est configuré)

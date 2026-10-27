@@ -361,6 +361,15 @@ empreinte** dans `docker-compose.yml` :
 `./scripts/backup.sh && docker compose pull && docker compose up -d`, puis
 `test-hardening.sh`, `test-backup.sh` et `test-models.sh`.
 
+**Routine hebdomadaire** (15 min, à confier à un responsable nommé) :
+1. Lire les avis de sécurité : GitHub Security Advisories d'[Open WebUI](https://github.com/open-webui/open-webui/security/advisories)
+   et de [LiteLLM](https://github.com/BerriAI/litellm/security/advisories), et
+   <https://docs.litellm.ai/blog/tags/security>.
+2. Traiter les PR Dependabot du lundi (une par image, versions d'au moins 7 jours) : notes de
+   version, puis `test-models.sh`, `test-hardening.sh`, `test-backup.sh` avant fusion. Une faille
+   critique corrigée justifie de ne pas attendre les 7 jours.
+3. Vérifier que la sauvegarde de la nuit existe hors du serveur.
+
 **Sauvegarde** : `./scripts/backup.sh` → `backups/ownGPT-<date>.tar.enc` (un dump par base,
 + volumes Open WebUI et certificats ; chiffré
 AES-256 avec `BACKUP_PASSPHRASE` puis **authentifié** par un HMAC-SHA256 (`.tar.enc.mac`),
