@@ -365,9 +365,12 @@ empreinte** dans `docker-compose.yml` :
 1. Lire les avis de sécurité : GitHub Security Advisories d'[Open WebUI](https://github.com/open-webui/open-webui/security/advisories)
    et de [LiteLLM](https://github.com/BerriAI/litellm/security/advisories), et
    <https://docs.litellm.ai/blog/tags/security>.
-2. Traiter les PR Dependabot du lundi (une par image, versions d'au moins 7 jours) : notes de
-   version, puis `test-models.sh`, `test-hardening.sh`, `test-backup.sh` avant fusion. Une faille
-   critique corrigée justifie de ne pas attendre les 7 jours.
+2. Traiter les PR Dependabot du lundi (une par image) : **vérifier que la release a au moins
+   7 jours** (pour les images, Dependabot ne peut pas appliquer ce délai lui-même : le registre ne
+   lui donne pas la date, la PR l'indique), lire notes de version et avis, puis `test-models.sh`,
+   `test-hardening.sh`, `test-backup.sh` avant fusion. Une faille critique corrigée justifie de
+   ne pas attendre les 7 jours. Les montées majeures de PostgreSQL sont exclues : migration
+   planifiée (sauvegarde, `pg_dump` / restauration sur la nouvelle version).
 3. Vérifier que la sauvegarde de la nuit existe hors du serveur.
 
 **Sauvegarde** : `./scripts/backup.sh` → `backups/ownGPT-<date>.tar.enc` (un dump par base,

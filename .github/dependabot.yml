@@ -3,7 +3,9 @@
 #
 # cooldown: a release is only proposed once it is 7 days old. A compromised release is
 # usually found and pulled within hours (LiteLLM 1.107.0, 21/10/2026: ~2 h), so waiting
-# a week keeps us off it.
+# a week keeps us off it. Caveat (seen on the first run): for container images GHCR and
+# Docker Hub give Dependabot no publication date, so the cooldown is NOT applied to
+# docker-compose updates; the PR says so. Check the release date by hand before merging.
 version: 2
 updates:
   - package-ecosystem: "docker-compose"
@@ -15,6 +17,11 @@ updates:
       timezone: "Europe/Paris"
     cooldown:
       default-days: 7
+    ignore:
+      # A PostgreSQL major version cannot open the previous major's data directory: it
+      # needs a planned dump/restore (or pg_upgrade), never an automatic bump.
+      - dependency-name: "postgres"
+        update-types: ["version-update:semver-major"]
     # One PR per image: each upgrade needs its own read of the release notes and
     # security advisories (LiteLLM and Open WebUI move fast and break things).
     open-pull-requests-limit: 5
