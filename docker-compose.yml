@@ -7,6 +7,8 @@ name: owngpt
 x-defaults: &defaults
   restart: unless-stopped
   networks: [interne]
+  # No privilege escalation (setuid binaries) inside any container.
+  security_opt: ["no-new-privileges:true"]
   logging:
     driver: json-file
     options: { max-size: "10m", max-file: "3" }
@@ -15,7 +17,9 @@ services:
   # ---------------------------------------------------------------------------
   caddy:
     <<: *defaults
-    image: caddy:2.11.7-alpine
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]   # bind 80/443 inside the container
+    image: caddy:2.11.7-alpine@sha256:eb4d35b7452d1ab6171fbdbe8d9275b2301dad6dad92115d91e19fb9b24d510f
     ports:
       - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-80}:80"
       - "${HTTP_BIND:-127.0.0.1}:${HTTPS_PORT:-443}:443"
@@ -37,12 +41,16 @@ services:
       openwebui: { condition: service_healthy }
       litellm: { condition: service_healthy }
     deploy:
-      resources: { limits: { memory: 128M } }
+      resources: { limits: { memory: 128M, pids: 1024 } }
 
   # ---------------------------------------------------------------------------
   postgres:
     <<: *defaults
-    image: postgres:17.11-alpine
+    networks: [donnees]
+    cap_drop: [ALL]
+    # Needed by the entrypoint to own the data directory and switch to the postgres user.
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    image: postgres:17.11-alpine@sha256:266d3c257594e195b309ae9d1805e54c788f1d7b375f56bf6c367aac6c917e7b
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
@@ -58,11 +66,13 @@ services:
       retries: 10
       start_period: 20s
     deploy:
-      resources: { limits: { memory: 512M } }
+      resources: { limits: { memory: 512M, pids: 1024 } }
 
   # ---------------------------------------------------------------------------
   presidio-analyzer:
     <<: *defaults
+    networks: [donnees]
+    cap_drop: [ALL]
     build:
       context: ./presidio
       args:
@@ -82,7 +92,9 @@ services:
 
   presidio-anonymizer:
     <<: *defaults
-    image: ghcr.io/data-privacy-stack/presidio-anonymizer:2.2.366
+    networks: [donnees]
+    cap_drop: [ALL]
+    image: ghcr.io/data-privacy-stack/presidio-anonymizer:2.2.366@sha256:b4d9ec900135c694b84353e03e1abd5127ccdfcd916d32db73002c28f0eaddc7
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:3000/health', timeout=3)"]
       interval: 15s
@@ -90,12 +102,14 @@ services:
       retries: 10
       start_period: 20s
     deploy:
-      resources: { limits: { memory: 256M } }
+      resources: { limits: { memory: 256M, pids: 1024 } }
 
   # ---------------------------------------------------------------------------
   litellm:
     <<: *defaults
-    image: ghcr.io/berriai/litellm:v1.106.4
+    networks: [interne, donnees]
+    cap_drop: [ALL]
+    image: ghcr.io/berriai/litellm:v1.106.4@sha256:c169fb3adc514fcf210377c203f3de406d54f10bfdacf13948a4a839db9af7de
     command: ["--config", "/app/config/${LITELLM_CONFIG:-config.yaml}", "--port", "4000", "--num_workers", "1"]
     environment:
       DATABASE_URL: postgresql://litellm:${LITELLM_DB_PASSWORD}@postgres:5432/litellm
@@ -132,12 +146,14 @@ services:
       retries: 20
       start_period: 90s
     deploy:
-      resources: { limits: { memory: 1536M } }
+      resources: { limits: { memory: 1536M, pids: 1024 } }
 
   # ---------------------------------------------------------------------------
   openwebui:
     <<: *defaults
-    image: ghcr.io/open-webui/open-webui:v0.12.4
+    networks: [interne, donnees]
+    cap_drop: [ALL]
+    image: ghcr.io/open-webui/open-webui:v0.12.4@sha256:a5b9e403d19154796850679c8c5d1295301cee954be8b84ddd62af92426558f7
     environment:
       WEBUI_NAME: ${WEBUI_NAME:-IA Société Exemple}
       WEBUI_URL: ${OPENWEBUI_URL:?}
@@ -186,6 +202,9 @@ services:
       ENABLE_COMMUNITY_SHARING: "false"
       ENABLE_EVALUATION_ARENA_MODELS: "false"
       ENABLE_DIRECT_CONNECTIONS: "false"
+      # Code from the chat runs in the user's browser (Pyodide), never on the server.
+      CODE_EXECUTION_ENGINE: pyodide
+      CODE_INTERPRETER_ENGINE: pyodide
       # Permissions par défaut = groupe « standard » (le plus restrictif).
       # Open WebUI combine les droits en OU : un groupe ne peut qu'en AJOUTER.
       USER_PERMISSIONS_WORKSPACE_MODELS_ACCESS: "true"
@@ -239,15 +258,16 @@ services:
       # premier démarrage : téléchargement du modèle d'embeddings (~470 Mo)
       start_period: 180s
     deploy:
-      resources: { limits: { memory: 2560M } }
+      resources: { limits: { memory: 2560M, pids: 1024 } }
 
   # ===========================================================================
   # Profil « tunnel » : Cloudflare Tunnel (serveur maison, aucune IP exposée)
   # ===========================================================================
   cloudflared:
     <<: *defaults
+    cap_drop: [ALL]
     profiles: [tunnel]
-    image: cloudflare/cloudflared:2026.10.4
+    image: cloudflare/cloudflared:2026.10.4@sha256:c6c7ae1d5dfdcb094ad344ed68ccffc26635c9c6be80965664c33baf064b0515
     command: ["tunnel", "--no-autoupdate", "run"]
     networks:
       interne:
@@ -258,7 +278,7 @@ services:
     depends_on:
       caddy: { condition: service_started }
     deploy:
-      resources: { limits: { memory: 128M } }
+      resources: { limits: { memory: 128M, pids: 1024 } }
 
   # ===========================================================================
   # Profil « sso » : Authentik (fournisseur OIDC pour Open WebUI)
@@ -266,8 +286,9 @@ services:
   # ===========================================================================
   authentik-postgres:
     <<: *defaults
+    networks: [donnees]
     profiles: [sso]
-    image: postgres:16.15-alpine
+    image: postgres:16.15-alpine@sha256:0cefaabd882e42bcb2a2f3dc56d3ce4770560ba62fd7f197f1a2e008fd5731ab
     environment:
       POSTGRES_USER: authentik
       POSTGRES_DB: authentik
@@ -281,12 +302,13 @@ services:
       retries: 10
       start_period: 20s
     deploy:
-      resources: { limits: { memory: 256M } }
+      resources: { limits: { memory: 256M, pids: 1024 } }
 
   authentik-server:
     <<: *defaults
+    networks: [interne, donnees]
     profiles: [sso]
-    image: ghcr.io/goauthentik/server:2026.8.5
+    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     command: server
     environment: &authentik-env
       AUTHENTIK_SECRET_KEY: ${AUTHENTIK_SECRET_KEY:-}
@@ -300,12 +322,13 @@ services:
     depends_on:
       authentik-postgres: { condition: service_healthy }
     deploy:
-      resources: { limits: { memory: 1G } }
+      resources: { limits: { memory: 1G, pids: 1024 } }
 
   authentik-worker:
     <<: *defaults
+    networks: [interne, donnees]
     profiles: [sso]
-    image: ghcr.io/goauthentik/server:2026.8.5
+    image: ghcr.io/goauthentik/server:2026.8.5@sha256:602227a86455d6772e3d16b7d852713c4f864f40df5df894abd1285bb53979a5
     command: worker
     environment: *authentik-env
     volumes:
@@ -313,9 +336,13 @@ services:
     depends_on:
       authentik-postgres: { condition: service_healthy }
     deploy:
-      resources: { limits: { memory: 1G } }
+      resources: { limits: { memory: 1G, pids: 1024 } }
 
 networks:
+  # Data tier (PostgreSQL, Presidio): no Internet access at all.
+  donnees:
+    driver: bridge
+    internal: true
   interne:
     driver: bridge
     ipam:

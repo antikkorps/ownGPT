@@ -24,6 +24,7 @@ docker compose --profile sso up -d                         # + Authentik
 docker compose exec openwebui python3 /seed/import_seed.py # groups, users, assistants… (idempotent)
 ./presidio/test-analyzer.sh                                # French analyzer unit test (offline)
 ./caddy/test-caddy.sh                                      # route exposure test (offline)
+./scripts/test-hardening.sh                                # container hardening (stack up)
 ./scripts/test-presidio.sh                                 # e2e guardrails (stack up + real Mistral key)
 ./scripts/test-models.sh [--sans-panne]                    # e2e models, tools, /v1/messages, fallback
 ./scripts/litellm-api.sh GET /key/list                     # LiteLLM admin API with the master key
@@ -119,6 +120,9 @@ Security invariants
   `pii-dev`) or sets `opted_out_global_guardrails` explicitly; coding-agent keys opt out of
   `pii-standard` only. Per-key guardrail selection is LiteLLM Enterprise: do not rely on it.
 - Tools / Functions (server-side Python) stay admin-only.
+- Every service keeps `no-new-privileges` and `cap_drop: [ALL]` (add back only what is
+  proven necessary); PostgreSQL and Presidio stay on the `internal: true` network `donnees`.
+  `scripts/test-hardening.sh` must stay green.
 - Chinese-hosted APIs (Moonshot, DeepSeek direct) remain commented out, admin-only, never
   with real data.
 
@@ -131,8 +135,9 @@ Gotchas (verified on the pinned versions)
 - Presidio predefined recognizers default to English: declare every recognizer for `fr`
   in `presidio/conf/recognizers-fr.yaml`. Keep `presidio_filter_scope: input`.
 - Compose evaluates `${VAR:?}` even in inactive profiles: use `${VAR:-}` there.
-- Image tags are exact versions (no `latest`, no major-only tags); check existence with
-  `docker manifest inspect <image:tag>` before pinning.
+- Images are pinned as `image:exact-tag@sha256:<index digest>` (no `latest`, no major-only
+  tags); get the digest with `docker buildx imagetools inspect <image:tag>`. A new spaCy model
+  needs its wheel sha256 in `presidio/spacy-models.sha256`.
 - Check config keys against the image source (`docker run --rm --entrypoint sh <image>
   -c 'grep -rn …'`) rather than guessing from docs.
 

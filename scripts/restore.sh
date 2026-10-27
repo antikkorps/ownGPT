@@ -40,7 +40,7 @@ for f in "$WORK"/vol-*.tar.gz; do
   docker volume create "${COMPOSE_PROJECT}_${v}" >/dev/null
   # The model cache is kept: it is not in the archive and is slow to re-download.
   # The volume name is passed as an argument, never spliced into the shell code.
-  docker run --rm -v "${COMPOSE_PROJECT}_${v}:/data" -v "$(realpath "$WORK"):/in:ro" alpine:3.22.7 \
+  docker run --rm -v "${COMPOSE_PROJECT}_${v}:/data" -v "$(realpath "$WORK"):/in:ro" alpine:3.22.7@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f \
     sh -c 'find /data -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf {} +; tar -xzf "/in/vol-$1.tar.gz" -C /data' _ "$v"
 done
 

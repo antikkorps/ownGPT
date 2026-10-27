@@ -28,7 +28,7 @@ VOLUMES=(openwebui_data caddy_data)
 docker volume inspect "${COMPOSE_PROJECT}_authentik_data" >/dev/null 2>&1 && VOLUMES+=(authentik_data)
 for v in "${VOLUMES[@]}"; do
   echo "[$(date -Is)] Archive du volume $v…"
-  docker run --rm -v "${COMPOSE_PROJECT}_${v}:/data:ro" -v "$(realpath "$WORK"):/out" alpine:3.22.7 \
+  docker run --rm -v "${COMPOSE_PROJECT}_${v}:/data:ro" -v "$(realpath "$WORK"):/out" alpine:3.22.7@sha256:2e0b81d60597f449baa56dc25d355367869d2dca4cd57e866f1e2b52af3eb55f \
     tar -czf "/out/vol-${v}.tar.gz" --exclude=./cache -C /data .
 done
 

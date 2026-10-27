@@ -40,7 +40,10 @@ Démo sur **données fictives uniquement**. Scénario de présentation : [DEMO.m
 
 ## 1. Composants et versions
 
-Toutes les images sont épinglées (vérifiées le 27/10/2026 dans les registres officiels).
+Toutes les images sont épinglées par **tag et empreinte** (`image:tag@sha256:…`, vérifiées le
+27/10/2026 dans les registres officiels) : un tag republié ne peut pas changer ce qui tourne.
+Le modèle spaCy est installé depuis sa release officielle et vérifié par son sha256
+(`presidio/spacy-models.sha256`).
 
 | Service | Image | Rôle |
 |---|---|---|
@@ -194,7 +197,13 @@ Créer le VPS (Ubuntu 24.04, ≥ 8 Go), pointer `chat.` et `api.` (enregistremen
 [durcissement](#10-durcissement-minimal-du-vps), puis :
 
 ```bash
-curl -fsSL https://get.docker.com | sh
+# Docker Engine depuis le dépôt APT officiel (https://docs.docker.com/engine/install/ubuntu/),
+# plutôt que `curl … | sh` : paquets signés, mis à jour par unattended-upgrades.
+sudo install -m 0755 -d /etc/apt/keyrings
+sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
+  | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+sudo apt update && sudo apt install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin
 git clone <ce-dépôt> /opt/ownGPT && cd /opt/ownGPT
 cp .env.example .env && ./scripts/gen-secrets.sh --apply
 nano .env
@@ -378,9 +387,11 @@ et *Usage*.
 
 ## 9. Exploitation
 
-**Mise à jour** : modifier les tags dans `docker-compose.yml` (lire les notes de version),
-puis `./scripts/backup.sh && docker compose pull && docker compose up -d --build`,
-puis `test-presidio.sh` et `test-models.sh`.
+**Mise à jour** : pour chaque image, lire les notes de version, puis mettre à jour **tag et
+empreinte** dans `docker-compose.yml` (et `presidio/Dockerfile`) :
+`docker buildx imagetools inspect <image>:<nouveau-tag>` → ligne `Digest:`. Ensuite
+`./scripts/backup.sh && docker compose pull && docker compose up -d --build`, puis
+`test-hardening.sh`, `test-presidio.sh` et `test-models.sh`.
 
 **Sauvegarde** : `./scripts/backup.sh` → `backups/ownGPT-<date>.tar.enc` (un dump par base,
 Authentik compris si le profil `sso` tourne, + volumes Open WebUI et certificats ; chiffré
@@ -442,6 +453,9 @@ sudo dpkg-reconfigure -plow unattended-upgrades    # mises à jour de sécurité
 - Les en-têtes `X-OpenWebUI-*` (identité) et `X-LiteLLM-*` (contrôle) sont supprimés par Caddy
   sur toute l'API : seul Open WebUI, en interne, peut attribuer une dépense à un utilisateur.
 - Vérification hors ligne : `./caddy/test-caddy.sh` (lancé par `scripts/check.sh` et la CI).
+- Conteneurs durcis (vérifié par `./scripts/test-hardening.sh`) : `no-new-privileges` partout,
+  toutes les capacités Linux retirées (sauf le strict nécessaire pour Caddy et PostgreSQL),
+  limite de processus, et réseau `donnees` **sans accès Internet** pour PostgreSQL et Presidio.
 - `.env` est créé en 600 par `gen-secrets.sh` (umask 077) ; les scripts le lisent sans
   l'exécuter, et ne passent ni clé ni secret en argument de commande (invisibles dans `ps`).
 
