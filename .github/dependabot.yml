@@ -1,0 +1,39 @@
+# Version updates for the images pinned in docker-compose.yml and for the GitHub Actions
+# used by CI. Security alerts are a separate repository setting (Settings → Code security).
+#
+# cooldown: a release is only proposed once it is 7 days old. A compromised release is
+# usually found and pulled within hours (LiteLLM 1.107.0, 21/10/2026: ~2 h), so waiting
+# a week keeps us off it.
+version: 2
+updates:
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    cooldown:
+      default-days: 7
+    # One PR per image: each upgrade needs its own read of the release notes and
+    # security advisories (LiteLLM and Open WebUI move fast and break things).
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(docker)"
+    labels: ["dependencies", "docker"]
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "07:00"
+      timezone: "Europe/Paris"
+    cooldown:
+      default-days: 7
+    groups:
+      actions:
+        patterns: ["*"]
+    commit-message:
+      prefix: "ci"
+    labels: ["dependencies", "ci"]
