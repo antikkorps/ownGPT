@@ -6,6 +6,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# A missing bind-mount source would be created by Docker as root: fail early instead.
+for f in caddy/Caddyfile caddy/tls/acme caddy/tls/internal; do [ -f "$f" ] || { echo "ERREUR : $f absent" >&2; exit 1; }; done
+
 CADDY_IMAGE="$(sed -n 's/^ *image: \(caddy:[^ ]*\)$/\1/p' docker-compose.yml)"
 PY_IMAGE=python:3.12.16-alpine
 NET="owngpt-caddytest-$$"
@@ -19,7 +22,11 @@ SPOOF_HEADERS=("X-OpenWebUI-User-Name: v" "X-OpenWebUI-User-Id: v" "X-OpenWebUI-
   "X-OpenWebUI-Message-Id: v" "x-litellm-tags: v" "x-litellm-session-id: v" "x-litellm-spend-logs-metadata: {}"
   "x-litellm-user-id: v" "x-litellm-disable-callbacks: presidio" "X-LiteLLM-End-User-Id: v")
 
-cleanup() { docker rm -f "$NET-caddy" "$NET-stub" >/dev/null 2>&1 || true; docker network rm "$NET" >/dev/null 2>&1 || true; }
+cleanup() {
+  docker rm -f "$NET-caddy" "$NET-caddy-tls" "$NET-stub" >/dev/null 2>&1 || true
+  docker network rm "$NET" >/dev/null 2>&1 || true
+  rm -rf "${TLS_DIR:-}"
+}
 trap cleanup EXIT
 
 docker network create --subnet "$SUBNET" "$NET" >/dev/null
@@ -28,7 +35,7 @@ docker run -d --name "$NET-stub" --network "$NET" --network-alias litellm --netw
 docker run -d --name "$NET-caddy" --network "$NET" --network-alias caddy \
   -e OPENWEBUI_SITE=http://chat.test -e LITELLM_SITE=http://api.test -e AUTHENTIK_SITE=http://auth.test \
   -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32 $LAN_ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
-  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE" >/dev/null
+  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" >/dev/null
 
 # call <client-ip|-> <METHOD> <host> <path> [headers...] — prints "<status> <body>".
 call() {
@@ -95,6 +102,33 @@ for forbidden in 0.0.0.0/0 ::/0 172.16.0.0/12 fc00::/7; do
 done
 [ "$(grep -c '${HTTP_BIND:-127.0.0.1}' docker-compose.yml)" = 3 ] && echo "PASS  HTTP_BIND par défaut 127.0.0.1" \
   || { echo "FAIL  HTTP_BIND par défaut ≠ 127.0.0.1"; FAIL=1; }
+
+echo "-- mode LAN en HTTPS (CADDY_TLS=internal, autorité locale de Caddy)"
+docker run -d --name "$NET-caddy-tls" --network "$NET" --network-alias chat.lan.test --network-alias api.lan.test \
+  -e OPENWEBUI_SITE=chat.lan.test -e LITELLM_SITE=api.lan.test -e AUTHENTIK_SITE=auth.lan.test -e CADDY_TLS=internal \
+  -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
+  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" >/dev/null
+TLS_DIR="$(mktemp -d)"
+for _ in $(seq 1 20); do
+  docker cp "$NET-caddy-tls:/data/caddy/pki/authorities/local/root.crt" "$TLS_DIR/root.crt" >/dev/null 2>&1 && break; sleep 1
+done
+chmod 644 "$TLS_DIR/root.crt" 2>/dev/null || true
+tls_call() {  # tls_call <METHOD> <host> <path> — HTTPS with the exported root CA trusted
+  docker run --rm --network "$NET" -e CAFILE=/ca/root.crt -v "$TLS_DIR:/ca:ro" -v "$PWD/caddy/test:/t:ro" \
+    "$PY_IMAGE" python /t/client.py "$@" | cut -d' ' -f1 || true
+}
+got="$(tls_call GET chat.lan.test /)"
+[ "$got" = 200 ] && echo "PASS  200  https://chat.lan.test (certificat de l'autorité locale)" \
+  || { echo "FAIL  HTTPS chat : $got"; FAIL=1; }
+got="$(tls_call GET api.lan.test /v1/models)"
+[ "$got" = 200 ] && echo "PASS  200  https://api.lan.test/v1/models" || { echo "FAIL  HTTPS api : $got"; FAIL=1; }
+got="$(docker run --rm --network "$NET" -v "$PWD/caddy/test:/t:ro" "$PY_IMAGE" python -c '
+import urllib.request as u, urllib.error as e
+class N(u.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k): return None
+try: u.build_opener(N).open("http://chat.lan.test/", timeout=10)
+except e.HTTPError as x: print(x.code, x.headers.get("Location"))' || true)"
+[[ "$got" == 30[18]\ https://chat.lan.test/* ]] && echo "PASS  HTTP → HTTPS ($got)" || { echo "FAIL  redirection HTTP : $got"; FAIL=1; }
 
 [ "$FAIL" = 0 ] && echo "RÉSULTAT : OK" || echo "RÉSULTAT : ÉCHEC"
 exit "$FAIL"

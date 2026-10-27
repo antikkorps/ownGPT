@@ -96,7 +96,8 @@ Git and GitHub
 Deployment modes (all three must keep working; test the one you touch)
 - VPS: site addresses without scheme (`chat.example.fr`) → Caddy gets Let's Encrypt certs.
 - Home + Cloudflare Tunnel: `http://` site addresses, `HTTP_BIND=127.0.0.1`, profile `tunnel`.
-- Home LAN without tunnel: `http://chat.<ip>.nip.io`, `HTTP_BIND=0.0.0.0`, plain HTTP.
+- Home LAN without tunnel: `chat.<ip>.nip.io` (no scheme) + `CADDY_TLS=internal` (Caddy's
+  local CA, root exported by `scripts/export-ca.sh`), `HTTP_BIND=<LAN IP>`.
 
 Security invariants
 - Only Caddy publishes host ports (80/443, configurable `HTTP_PORT`/`HTTPS_PORT`); never

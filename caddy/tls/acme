@@ -1,0 +1,2 @@
+# CADDY_TLS=acme (default): nothing to add. Host-only site addresses get Let's Encrypt
+# certificates automatically (VPS); http:// addresses stay plain HTTP (tunnel mode).

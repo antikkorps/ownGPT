@@ -164,13 +164,26 @@ docker compose --profile tunnel up -d --build     # 5–7 min au premier lanceme
 > Acceptable pour des données fictives ; en production, serveur chez un hébergeur français
 > avec HTTPS de bout en bout (mode VPS).
 
-**LAN sans tunnel** ⚠️ en HTTP simple, mots de passe, cookies de session et clés virtuelles
-circulent **en clair sur le réseau local** : tout poste du LAN (ou du Wi-Fi invité s'il n'est pas
-isolé) peut les intercepter. À réserver à un réseau de confiance, avec `HTTP_BIND` sur l'IP LAN
-du serveur plutôt que `0.0.0.0` ; sinon utiliser le tunnel ou un VPN.
-`OPENWEBUI_SITE=http://chat.192-168-1-10.nip.io`,
-`LITELLM_SITE=http://api.192-168-1-10.nip.io`, `OPENWEBUI_URL=` idem, `HTTP_BIND=0.0.0.0`,
-puis `docker compose up -d --build`. (`nip.io` résout `x-x-x-x.nip.io` vers l'IP `x.x.x.x`.)
+**LAN sans tunnel** : HTTPS par l'**autorité de certification locale de Caddy** (sinon
+mots de passe, cookies et clés virtuelles circuleraient en clair sur le réseau local).
+```bash
+# .env (IP du serveur 192.168.1.10 ; nip.io résout x-x-x-x.nip.io vers x.x.x.x)
+OPENWEBUI_SITE=chat.192-168-1-10.nip.io     # sans http:// : HTTPS
+LITELLM_SITE=api.192-168-1-10.nip.io
+OPENWEBUI_URL=https://chat.192-168-1-10.nip.io
+CADDY_TLS=internal
+HTTP_BIND=192.168.1.10                       # l'IP LAN, pas 0.0.0.0
+docker compose up -d --build
+./scripts/export-ca.sh                       # → owngpt-root-ca.crt + empreinte SHA-256
+```
+Installer `owngpt-root-ca.crt` sur chaque poste client, en vérifiant l'empreinte affichée :
+Windows (*certmgr* → Autorités de certification racines de confiance), macOS (Trousseau →
+Système → « Toujours approuver »), Linux (`/usr/local/share/ca-certificates/` puis
+`sudo update-ca-certificates`), Firefox (Paramètres → Certificats → Importer). Pour les outils :
+`NODE_EXTRA_CA_CERTS=/chemin/owngpt-root-ca.crt` (Claude Code, OpenCode), `SSL_CERT_FILE=…`
+(scripts Python). L'autorité est conservée dans le volume `caddy_data` (sauvegardé) : la
+réinstallation sur les postes n'est à faire qu'une fois. Sans certificat installé, le
+navigateur affiche une alerte : ne pas l'ignorer.
 
 Si les ports 80/443 sont déjà pris sur le serveur : `HTTP_PORT` / `HTTPS_PORT` dans `.env`.
 

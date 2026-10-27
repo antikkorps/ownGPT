@@ -90,9 +90,14 @@ api_base_url() {
 # not as arguments (visible to every user of the host with `ps`).
 api_curl() {
   local key="$1" path="$2" body="$3"; shift 3
-  local pin=()
+  local pin=() bind="${HTTP_BIND:-127.0.0.1}"
+  [ "$bind" = 0.0.0.0 ] && bind=127.0.0.1
   if [[ "$LITELLM_SITE" == http://* ]]; then
-    pin=(--connect-to "::127.0.0.1:${HTTP_PORT:-80}")
+    pin=(--connect-to "::${bind}:${HTTP_PORT:-80}")
+  elif [ "${CADDY_TLS:-acme}" = internal ]; then
+    # LAN HTTPS: local Caddy, certificate checked against Caddy's own root CA.
+    [ -s "${LOCAL_CA:-}" ] || { LOCAL_CA="$(mktemp)"; docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$LOCAL_CA" >/dev/null 2>&1; }
+    pin=(--connect-to "::${bind}:${HTTPS_PORT:-443}" --cacert "$LOCAL_CA")
   fi
   printf '%s' "$body" | curl -sS "${pin[@]}" -w '\n%{http_code}' "$(api_base_url)${path}" \
     -H @<(printf 'Authorization: Bearer %s\n' "$key") -H 'Content-Type: application/json' \
