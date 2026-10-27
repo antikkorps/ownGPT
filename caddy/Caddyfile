@@ -43,28 +43,25 @@
 }
 
 # --- Passerelle API (LiteLLM) -------------------------------------------------
-# Liste blanche : seules les routes de modèles (OpenAI + Anthropic) sont publiques, et
-# exigent une clé virtuelle. Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…)
-# est de l'administration, réservée à ADMIN_ALLOWED_IPS.
+# Liste blanche : seules les routes de chat (OpenAI + Anthropic) et la liste des modèles
+# sont publiques, et exigent une clé virtuelle. Pas de /v1/completions, /v1/embeddings ni
+# /v1/responses : leur texte n'est pas dans messages[], que le guardrail Presidio analyse.
+# Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…) est de l'administration,
+# réservée à ADMIN_ALLOWED_IPS.
 {$LITELLM_SITE} {
 	import securite
 	request_body {
 		max_size 20MB
 	}
+	# L'identité de l'utilisateur n'est crue que venant d'Open WebUI, qui parle à LiteLLM en
+	# direct sur le réseau interne ; les en-têtes de contrôle LiteLLM (tags, désactivation de
+	# callbacks, id utilisateur…) ne servent à aucun client légitime. Retirés sur tout le site.
+	request_header -X-OpenWebUI-*
+	request_header -X-LiteLLM-*
 
-	@modeles path /v1/chat/completions /v1/completions /v1/embeddings /v1/models /v1/models/* /v1/messages /v1/messages/* /chat/completions /completions /embeddings /models /health/liveliness /health/readiness
+	@modeles path /v1/chat/completions /chat/completions /v1/messages /v1/messages/* /v1/models /v1/models/* /models /health/liveliness /health/readiness
 	handle @modeles {
 		reverse_proxy litellm:4000 {
-			# L'identité de l'utilisateur n'est crue que venant d'Open WebUI, qui parle à
-			# LiteLLM en direct sur le réseau interne : depuis l'extérieur, on la retire.
-			header_up -X-OpenWebUI-User-Name
-			header_up -X-OpenWebUI-User-Id
-			header_up -X-OpenWebUI-User-Email
-			header_up -X-OpenWebUI-User-Role
-			header_up -X-OpenWebUI-User-Auth-Type
-			header_up -X-OpenWebUI-User-Jwt
-			header_up -X-OpenWebUI-Chat-Id
-			header_up -X-OpenWebUI-Message-Id
 			# Streaming (SSE) sans mise en tampon.
 			flush_interval -1
 		}

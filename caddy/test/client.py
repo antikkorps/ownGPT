@@ -13,3 +13,5 @@ try:
         print(r.status, r.read().decode())
 except urllib.error.HTTPError as e:
     print(e.code, e.read().decode()[:100])
+except Exception as e:  # connection reset, malformed URL…: never a pass
+    print("ERR", type(e).__name__)
