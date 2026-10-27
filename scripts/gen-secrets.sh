@@ -4,6 +4,8 @@
 #        .env.example if missing), never overwrites an existing secret.
 #        ./scripts/gen-secrets.sh           → prints fresh values on stdout only.
 set -euo pipefail
+# Every file this script creates (.env, temp file) is private to the owner.
+umask 077
 cd "$(dirname "$0")/.."
 
 hex() { openssl rand -hex 32; }
@@ -27,16 +29,27 @@ declare -A SECRETS=(
   [AUTHENTIK_DB_PASSWORD]="$(hex)"
 )
 
+# fill_env — rewrites .env, filling only empty values (an existing secret is never rotated).
+# Pure bash: secrets never appear as arguments of another process (sed, awk…).
+fill_env() {
+  local tmp line key
+  tmp="$(mktemp .env.XXXXXX)"
+  while IFS= read -r line || [ -n "$line" ]; do
+    key="${line%%=*}"
+    if [ "$line" = "${key}=" ] && [ -n "${SECRETS[$key]:-}" ]; then
+      printf '%s=%s\n' "$key" "${SECRETS[$key]}"
+      echo "généré : $key" >&2
+    else
+      printf '%s\n' "$line"
+    fi
+  done < .env > "$tmp"
+  mv "$tmp" .env
+}
+
 if [ "${1:-}" = "--apply" ]; then
   [ -f .env ] || cp .env.example .env
-  for k in "${!SECRETS[@]}"; do
-    # Only fill empty values: never rotate an existing secret by accident.
-    if grep -q "^${k}=$" .env; then
-      sed -i "s|^${k}=$|${k}=${SECRETS[$k]}|" .env
-      echo "généré : $k"
-    fi
-  done
   chmod 600 .env
+  fill_env
 else
   for k in "${!SECRETS[@]}"; do echo "${k}=${SECRETS[$k]}"; done
 fi

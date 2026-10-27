@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Restores an archive produced by backup.sh (same machine or a new server with the same .env).
+# The archive is authenticated and decrypted BEFORE any service is stopped.
 # Usage : ./scripts/restore.sh backups/ownGPT-YYYYMMDD-HHMMSS.tar.enc
 set -euo pipefail
+umask 077
 ARCHIVE="$(realpath "${1:?Usage: $0 <archive.tar.enc>}")"
 source "$(dirname "$0")/lib.sh"
 
@@ -11,8 +13,12 @@ mkdir -p "$BACKUP_DIR" && chmod 700 "$BACKUP_DIR"
 WORK="$(mktemp -d "$BACKUP_DIR/.work-XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
-[ -f "$ARCHIVE.sha256" ] && (cd "$(dirname "$ARCHIVE")" && sha256sum -c "$(basename "$ARCHIVE").sha256" >/dev/null) \
-  && echo "Empreinte SHA-256 vérifiée."
+[ -f "$ARCHIVE.mac" ] || { echo "ERREUR : $ARCHIVE.mac absent, archive non authentifiable." >&2; exit 1; }
+if [ "$(archive_mac "$ARCHIVE")" != "$(cat "$ARCHIVE.mac")" ]; then
+  echo "ERREUR : authentification de l'archive échouée (modifiée, ou autre BACKUP_PASSPHRASE)." >&2
+  exit 1
+fi
+echo "Archive authentifiée."
 openssl enc -d -aes-256-cbc -pbkdf2 -iter 600000 -pass env:BACKUP_PASSPHRASE -in "$ARCHIVE" | tar -C "$WORK" -xf -
 
 echo "Arrêt des applications (les bases restent démarrées)…"
@@ -33,8 +39,9 @@ for f in "$WORK"/vol-*.tar.gz; do
   echo "Restauration du volume $v…"
   docker volume create "${COMPOSE_PROJECT}_${v}" >/dev/null
   # The model cache is kept: it is not in the archive and is slow to re-download.
+  # The volume name is passed as an argument, never spliced into the shell code.
   docker run --rm -v "${COMPOSE_PROJECT}_${v}:/data" -v "$(realpath "$WORK"):/in:ro" alpine:3.22.7 \
-    sh -c "find /data -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf {} +; tar -xzf /in/vol-${v}.tar.gz -C /data"
+    sh -c 'find /data -mindepth 1 -maxdepth 1 ! -name cache -exec rm -rf {} +; tar -xzf "/in/vol-$1.tar.gz" -C /data' _ "$v"
 done
 
 docker compose up -d

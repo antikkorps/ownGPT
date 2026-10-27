@@ -28,7 +28,8 @@ docker compose exec openwebui python3 /seed/import_seed.py # groups, users, assi
 ./scripts/test-models.sh [--sans-panne]                    # e2e models, tools, /v1/messages, fallback
 ./scripts/litellm-api.sh GET /key/list                     # LiteLLM admin API with the master key
 ./scripts/list-provider-models.sh mistral|scaleway         # real model ids + tool support
-./scripts/backup.sh  /  ./scripts/restore.sh <archive>
+./scripts/backup.sh  /  ./scripts/restore.sh <archive>     # archive + .mac (HMAC), verified first
+./scripts/test-backup.sh                                   # tampered/unauthenticated archive refused
 docker compose restart litellm                             # after ANY change in litellm/*.yaml
 ```
 
@@ -101,7 +102,8 @@ Security invariants
 - Only Caddy publishes host ports (80/443, configurable `HTTP_PORT`/`HTTPS_PORT`); never
   publish a database or internal service.
 - Secrets live only in `.env`; a new secret goes into `.env.example` (empty, commented) and
-  `scripts/gen-secrets.sh`.
+  `scripts/gen-secrets.sh`. Never `source .env` (use `load_env` from `lib.sh`), and never pass
+  a key or secret as a command-line argument: stdin, a file descriptor or the container env.
 - Open WebUI talks only to `http://litellm:4000/v1`, never to a provider directly.
 - On the public API site, Caddy allowlists model routes only; everything else (LiteLLM UI,
   login, admin API) and the Authentik console require `ADMIN_ALLOWED_IPS`. Only

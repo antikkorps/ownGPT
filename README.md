@@ -356,18 +356,22 @@ puis `test-presidio.sh` et `test-models.sh`.
 
 **Sauvegarde** : `./scripts/backup.sh` → `backups/ownGPT-<date>.tar.enc` (un dump par base,
 Authentik compris si le profil `sso` tourne, + volumes Open WebUI et certificats ; chiffré
-AES-256 avec `BACKUP_PASSPHRASE`, rotation `BACKUP_KEEP_DAYS`). Le cache des modèles
+AES-256 avec `BACKUP_PASSPHRASE` puis **authentifié** par un HMAC-SHA256 (`.tar.enc.mac`),
+rotation `BACKUP_KEEP_DAYS`). Le cache des modèles
 d'embeddings (~4 Go) est exclu : il est retéléchargé. Les fichiers intermédiaires non chiffrés
 ne sortent jamais du dossier de sauvegarde (droits 700) et sont effacés à la fin. Cron conseillé : `0 3 * * * cd /opt/ownGPT && ./scripts/backup.sh`.
 Copier les archives **hors du serveur** et conserver `.env` (ou au moins la phrase de passe
 et `LITELLM_SALT_KEY`) séparément.
 
-**Restauration** : `./scripts/restore.sh backups/ownGPT-<date>.tar.enc` (s'arrête à la
-première erreur SQL ; testée : une donnée créée après la sauvegarde disparaît).
+**Restauration** : `./scripts/restore.sh backups/ownGPT-<date>.tar.enc`. L'archive est
+authentifiée (fichier `.mac`) et déchiffrée **avant** tout arrêt de service : une archive
+modifiée ou sans `.mac` est refusée et la plateforme continue de tourner
+(`./scripts/test-backup.sh` le vérifie). Arrêt à la première erreur SQL ; testée : une donnée
+créée après la sauvegarde disparaît. Copier l'archive **et** son `.mac`.
 
 **Migration maison → VPS (< 15 min)** :
-1. Maison : `./scripts/backup.sh` ; copier l'archive et `.env` sur le VPS
-   (`scp backups/ownGPT-*.tar.enc .env vps:/opt/ownGPT/`).
+1. Maison : `./scripts/backup.sh` ; copier l'archive, son `.mac` et `.env` sur le VPS
+   (`scp backups/ownGPT-<date>.tar.enc* .env vps:/opt/ownGPT/backups/` puis déplacer `.env`).
 2. VPS (Docker installé, dépôt cloné) : dans `.env`, passer en mode VPS (adresses sans
    `http://`, `OPENWEBUI_URL=https://…`, `ACME_EMAIL`, `HTTP_BIND=0.0.0.0`).
 3. DNS : supprimer les *public hostnames* du tunnel, créer les enregistrements A vers le VPS.
@@ -406,7 +410,8 @@ sudo dpkg-reconfigure -plow unattended-upgrades    # mises à jour de sécurité
 - Les en-têtes d'identité `X-OpenWebUI-*` sont supprimés par Caddy sur l'API publique : seul
   Open WebUI (en interne) peut attribuer une dépense à un utilisateur.
 - Vérification hors ligne : `./caddy/test-caddy.sh` (lancé par `scripts/check.sh` et la CI).
-- `chmod 600 .env` (fait par `gen-secrets.sh`).
+- `.env` est créé en 600 par `gen-secrets.sh` (umask 077) ; les scripts le lisent sans
+  l'exécuter, et ne passent ni clé ni secret en argument de commande (invisibles dans `ps`).
 
 ## 11. Coûts estimés en production
 

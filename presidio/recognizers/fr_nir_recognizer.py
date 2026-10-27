@@ -9,9 +9,10 @@ from typing import List, Optional
 
 from presidio_analyzer import EntityRecognizer, Pattern, PatternRecognizer
 
-# Sex, birth year, month (01-12 or 20-99 for unknown/special cases), department
-# (2 digits or 2A/2B for Corsica), commune (3), order number (3), optional key (2).
-_BODY = r"[12378]\s?\d{2}\s?(?:0[1-9]|1[0-2]|[2-9]\d)\s?(?:\d{2}|2[AB])\s?\d{3}\s?\d{3}"
+# Sex (1-2; 3-4 people being registered; 7-8 temporary), birth year, month (01-12, or
+# 20-99 for unknown/special cases), department (2 digits, or 2A/2B for Corsica),
+# commune (3), order number (3), optional key (2).
+_BODY = r"[1-478]\s?\d{2}\s?(?:0[1-9]|1[0-2]|[2-9]\d)\s?(?:\d{2}|2[AB])\s?\d{3}\s?\d{3}"
 
 
 class FrNirRecognizer(PatternRecognizer):
