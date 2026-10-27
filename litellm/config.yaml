@@ -1,6 +1,6 @@
 # =============================================================================
 # LiteLLM — passerelle unique pour TOUS les usages (chat, agents de code, automatisations)
-# Version vérifiée : ghcr.io/berriai/litellm:v1.106.4
+# Version vérifiée : ghcr.io/berriai/litellm:v1.106.2 (voir docker-compose.yml)
 #
 # Fichier de base (Mistral uniquement). Pour activer Scaleway : LITELLM_CONFIG=config.scaleway.yaml
 # dans .env (ce fichier est alors inclus et complété).

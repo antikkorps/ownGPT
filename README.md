@@ -47,11 +47,20 @@ Toutes les images sont épinglées par **tag et empreinte** (`image:tag@sha256:�
 |---|---|---|
 | Caddy | `caddy:2.11.7-alpine` | Reverse proxy, HTTPS Let's Encrypt (VPS) ; seul service exposé (80/443) |
 | Open WebUI | `ghcr.io/open-webui/open-webui:v0.12.4` | Interface, comptes, historique, assistants, Knowledge (RAG local), prompts, skills |
-| LiteLLM | `ghcr.io/berriai/litellm:v1.106.4` | Passerelle unique : formats OpenAI **et** Anthropic, clés virtuelles, budgets, fallbacks |
+| LiteLLM | `ghcr.io/berriai/litellm:v1.106.2` | Passerelle unique : formats OpenAI **et** Anthropic, clés virtuelles, budgets, fallbacks |
 | PostgreSQL | `postgres:17.11-alpine` | Une instance, deux bases et deux rôles séparés (`openwebui`, `litellm`) |
 | cloudflared *(profil `tunnel`)* | `cloudflare/cloudflared:2026.10.4` | Accès public au serveur maison sans IP exposée |
 
 Aucune image construite localement : uniquement des images officielles.
+
+> **LiteLLM 1.106.2, pas plus récent pour l'instant.** Le 21/10/2026, la chaîne de publication de
+> LiteLLM a été compromise : `1.107.0` (PyPI) et les tags Docker `v1.107.0`, `latest`,
+> `main-latest`, `main-stable` ont servi une version malveillante pendant ~2 h
+> ([avis officiel](https://docs.litellm.ai/blog/security-incident-oct-21-2026)). 1.106.2 est la
+> dernière version construite avant l'incident et celle que l'éditeur déclare sûre. Ne jamais
+> utiliser `latest` ; avant toute montée de version, lire les avis de sécurité
+> (<https://docs.litellm.ai/blog/tags/security>, GitHub Security Advisories) et attendre quelques
+> jours après une publication.
 
 Arborescence :
 
