@@ -109,7 +109,11 @@ api_curl() {
     pin=(--connect-to "::${bind}:${HTTP_PORT:-80}")
   elif [ "${CADDY_TLS:-acme}" = internal ]; then
     # LAN HTTPS: local Caddy, certificate checked against Caddy's own root CA.
-    [ -s "${LOCAL_CA:-}" ] || { LOCAL_CA="$(mktemp)"; docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$LOCAL_CA" >/dev/null 2>&1; }
+    # Public certificate, cached at a fixed path (refreshed by each script run).
+    if [ -z "${LOCAL_CA:-}" ]; then
+      LOCAL_CA="${TMPDIR:-/tmp}/owngpt-local-ca-$(id -u).crt"
+      docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt "$LOCAL_CA" >/dev/null 2>&1
+    fi
     pin=(--connect-to "::${bind}:${HTTPS_PORT:-443}" --cacert "$LOCAL_CA")
   fi
   printf '%s' "$body" | curl -sS "${pin[@]}" -w '\n%{http_code}' "$(api_base_url)${path}" \
