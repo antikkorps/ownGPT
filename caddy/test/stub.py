@@ -1,5 +1,5 @@
-"""Fake upstreams for test-caddy.sh: answers 200 on the Open WebUI, LiteLLM and
-Authentik ports and reports which identity / LiteLLM control headers reached it."""
+"""Fake upstreams for test-caddy.sh: answers 200 on the Open WebUI and LiteLLM ports
+and reports which identity / LiteLLM control headers reached it."""
 import json
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -21,7 +21,7 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
-for port in (4000, 8080, 9000):
+for port in (4000, 8080):
     server = ThreadingHTTPServer(("0.0.0.0", port), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
 threading.Event().wait()

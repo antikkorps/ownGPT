@@ -7,8 +7,7 @@ Usage:
     python3 resume_document.py document.txt [--modele mistral-small]
 
 Stdlib only: runs on any server with Python 3.9+, no dependency to install.
-Personal data in the document is masked by the gateway (Presidio) before it
-reaches the provider; credit card or social security numbers block the call.
+The gateway logs who called which model and the cost, never the document itself.
 """
 import argparse
 import json
@@ -66,7 +65,7 @@ def main():
     try:
         summary, usage = summarize(text, args.modele)
     except urllib.error.HTTPError as e:
-        # 400 = blocked by the PII guardrail, 400/429 with "budget" = key budget exhausted.
+        # 401 = key revoked or blocked, 400/429 with "budget" = key budget exhausted.
         sys.exit(f"Refusé par la passerelle (HTTP {e.code}) : {e.read().decode()[:300]}")
     except urllib.error.URLError as e:
         sys.exit(f"Passerelle injoignable ({os.environ['OWNGPT_API_URL']}) : {e.reason}")

@@ -6,8 +6,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# A missing bind-mount source would be created by Docker as root: fail early instead.
+for f in caddy/Caddyfile caddy/tls/acme caddy/tls/internal; do [ -f "$f" ] || { echo "ERREUR : $f absent" >&2; exit 1; }; done
+
 CADDY_IMAGE="$(sed -n 's/^ *image: \(caddy:[^ ]*\)$/\1/p' docker-compose.yml)"
-PY_IMAGE=python:3.12.16-alpine
+PY_IMAGE=python:3.12.16-alpine@sha256:44bf3bcc455e0c9ccd912b78f39019b2f7e9d2f4fb47c6d6973c7638a99aff14
 NET="owngpt-caddytest-$$"
 SUBNET=172.31.251.0/24
 CLOUDFLARED_IP=172.31.251.250
@@ -17,18 +20,22 @@ FAIL=0
 SPOOF_HEADERS=("X-OpenWebUI-User-Name: v" "X-OpenWebUI-User-Id: v" "X-OpenWebUI-User-Email: victime@exemple.fr"
   "X-OpenWebUI-User-Role: admin" "X-OpenWebUI-User-Auth-Type: v" "X-OpenWebUI-User-Jwt: v" "X-OpenWebUI-Chat-Id: v"
   "X-OpenWebUI-Message-Id: v" "x-litellm-tags: v" "x-litellm-session-id: v" "x-litellm-spend-logs-metadata: {}"
-  "x-litellm-user-id: v" "x-litellm-disable-callbacks: presidio" "X-LiteLLM-End-User-Id: v")
+  "x-litellm-user-id: v" "x-litellm-disable-callbacks: v" "X-LiteLLM-End-User-Id: v")
 
-cleanup() { docker rm -f "$NET-caddy" "$NET-stub" >/dev/null 2>&1 || true; docker network rm "$NET" >/dev/null 2>&1 || true; }
+cleanup() {
+  docker rm -f "$NET-caddy" "$NET-caddy-tls" "$NET-stub" >/dev/null 2>&1 || true
+  docker network rm "$NET" >/dev/null 2>&1 || true
+  rm -rf "${TLS_DIR:-}"
+}
 trap cleanup EXIT
 
 docker network create --subnet "$SUBNET" "$NET" >/dev/null
 docker run -d --name "$NET-stub" --network "$NET" --network-alias litellm --network-alias openwebui \
-  --network-alias authentik-server -v "$PWD/caddy/test:/t:ro" "$PY_IMAGE" python /t/stub.py >/dev/null
+  -v "$PWD/caddy/test:/t:ro" "$PY_IMAGE" python /t/stub.py >/dev/null
 docker run -d --name "$NET-caddy" --network "$NET" --network-alias caddy \
-  -e OPENWEBUI_SITE=http://chat.test -e LITELLM_SITE=http://api.test -e AUTHENTIK_SITE=http://auth.test \
+  -e OPENWEBUI_SITE=http://chat.test -e LITELLM_SITE=http://api.test \
   -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32 $LAN_ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
-  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" "$CADDY_IMAGE" >/dev/null
+  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" >/dev/null
 
 # call <client-ip|-> <METHOD> <host> <path> [headers...] — prints "<status> <body>".
 call() {
@@ -51,12 +58,12 @@ expect 200 "api  : /v1/chat/completions"         - POST api.test /v1/chat/comple
 expect 200 "api  : /v1/messages (Anthropic)"     - POST api.test /v1/messages
 expect 200 "api  : /v1/messages/count_tokens"    - POST api.test /v1/messages/count_tokens
 expect 200 "api  : /health/liveliness"           - GET  api.test /health/liveliness
-# Routes whose text is not in messages[] are NOT scanned by the Presidio guardrail.
+# Not used by any planned client: closed (minimal surface).
 for p in /v1/completions /completions /v1/embeddings /embeddings /v1/responses /responses /v1/audio/speech; do
-  expect 403 "api  : $p (contournerait Presidio)" - POST api.test "$p"
+  expect 403 "api  : $p (non utilisée)"         - POST api.test "$p"
 done
 for p in /ui/ /login /v2/login /key/list /key/generate /team/list /user/list /customer/list \
-         /budget/list /model/info /config/yaml /spend/logs /global/spend /guardrails/list /health; do
+         /budget/list /model/info /config/yaml /spend/logs /global/spend /health; do
   expect 403 "api  : $p (admin)"                 - GET  api.test "$p"
 done
 expect 403 "api  : usurpation Cf-Connecting-Ip"  - GET  api.test /key/list "Cf-Connecting-Ip: $ADMIN_IP"
@@ -67,8 +74,6 @@ for p in /ui /v1/messages/../key/list /v1/models/../../key/list //key/list /key/
 done
 expect 403 "api  : HEAD /key/list"               - HEAD api.test /key/list
 expect 403 "api  : OPTIONS /key/list"            - OPTIONS api.test /key/list
-expect 403 "auth : console admin Authentik"      - GET  auth.test /if/admin/
-expect 200 "auth : parcours de connexion"        - GET  auth.test /if/flow/default-authentication-flow/
 
 echo "-- en-têtes d'identité / de contrôle LiteLLM injectés de l'extérieur"
 # expect_stripped <label> <client-ip|-> <path>
@@ -95,6 +100,51 @@ for forbidden in 0.0.0.0/0 ::/0 172.16.0.0/12 fc00::/7; do
 done
 [ "$(grep -c '${HTTP_BIND:-127.0.0.1}' docker-compose.yml)" = 3 ] && echo "PASS  HTTP_BIND par défaut 127.0.0.1" \
   || { echo "FAIL  HTTP_BIND par défaut ≠ 127.0.0.1"; FAIL=1; }
+
+echo "-- mode LAN en HTTPS (CADDY_TLS=internal, autorité locale de Caddy)"
+docker run -d --name "$NET-caddy-tls" --network "$NET" --network-alias chat.lan.test --network-alias api.lan.test \
+  -e OPENWEBUI_SITE=chat.lan.test -e LITELLM_SITE=api.lan.test -e CADDY_TLS=internal \
+  -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
+  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" >/dev/null
+TLS_DIR="$(mktemp -d)"
+for _ in $(seq 1 20); do
+  docker cp "$NET-caddy-tls:/data/caddy/pki/authorities/local/root.crt" "$TLS_DIR/root.crt" >/dev/null 2>&1 && break; sleep 1
+done
+chmod 644 "$TLS_DIR/root.crt" 2>/dev/null || true
+tls_call() {  # tls_call <METHOD> <host> <path> — HTTPS with the exported root CA trusted
+  docker run --rm --network "$NET" -e CAFILE=/ca/root.crt -v "$TLS_DIR:/ca:ro" -v "$PWD/caddy/test:/t:ro" \
+    "$PY_IMAGE" python /t/client.py "$@" | cut -d' ' -f1 || true
+}
+got="$(tls_call GET chat.lan.test /)"
+[ "$got" = 200 ] && echo "PASS  200  https://chat.lan.test (certificat de l'autorité locale)" \
+  || { echo "FAIL  HTTPS chat : $got"; FAIL=1; }
+got="$(tls_call GET api.lan.test /v1/models)"
+[ "$got" = 200 ] && echo "PASS  200  https://api.lan.test/v1/models" || { echo "FAIL  HTTPS api : $got"; FAIL=1; }
+got="$(docker run --rm --network "$NET" -v "$PWD/caddy/test:/t:ro" "$PY_IMAGE" python -c '
+import urllib.request as u, urllib.error as e
+class N(u.HTTPRedirectHandler):
+    def redirect_request(self, *a, **k): return None
+try: u.build_opener(N).open("http://chat.lan.test/", timeout=10)
+except e.HTTPError as x: print(x.code, x.headers.get("Location"))' || true)"
+[[ "$got" == 30[18]\ https://chat.lan.test/* ]] && echo "PASS  HTTP → HTTPS ($got)" || { echo "FAIL  redirection HTTP : $got"; FAIL=1; }
+
+echo "-- émetteur de certificats selon le mode (caddy adapt, hors ligne)"
+# issuers <OPENWEBUI_SITE> <CADDY_TLS> — issuer modules of the adapted TLS config.
+issuers() {
+  docker run --rm -e OPENWEBUI_SITE="$1" -e LITELLM_SITE="${1/chat/api}" \
+    -e CADDY_TLS="$2" -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
+    -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" \
+    caddy adapt --config /etc/caddy/Caddyfile 2>/dev/null \
+    | python3 -c 'import json,sys; t=json.load(sys.stdin).get("apps",{}).get("tls",{})
+print(" ".join(sorted({i["module"] for p in t.get("automation",{}).get("policies",[]) for i in p.get("issuers",[])})) or "aucun")' || true
+}
+check_issuers() {  # check_issuers <label> <site> <mode> <expected>
+  local got; got="$(issuers "$2" "$3")"
+  [ "$got" = "$4" ] && echo "PASS  $1 : $got" || { echo "FAIL  $1 : $4 attendu, obtenu $got"; FAIL=1; }
+}
+check_issuers "VPS (Let's Encrypt)"        chat.exemple.fr        acme     acme
+check_issuers "tunnel (HTTP simple)"       http://chat.exemple.fr acme     aucun
+check_issuers "LAN (autorité locale)"      chat.lan.test          internal internal
 
 [ "$FAIL" = 0 ] && echo "RÉSULTAT : OK" || echo "RÉSULTAT : ÉCHEC"
 exit "$FAIL"

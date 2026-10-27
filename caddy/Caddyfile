@@ -4,11 +4,15 @@
 #   VPS    : OPENWEBUI_SITE=chat.exemple.fr        → HTTPS Let's Encrypt automatique
 #            LITELLM_SITE=api.exemple.fr
 #   Maison : OPENWEBUI_SITE=http://chat.exemple.fr → HTTP simple ; le HTTPS est assuré par
-#            LITELLM_SITE=http://api.exemple.fr       Cloudflare Tunnel (ou LAN : *.nip.io)
+#            LITELLM_SITE=http://api.exemple.fr       Cloudflare Tunnel
+#   LAN    : OPENWEBUI_SITE=chat.192-168-1-10.nip.io + CADDY_TLS=internal → HTTPS par
+#            l'autorité locale de Caddy (racine à installer sur les postes : scripts/export-ca.sh)
 
 {
 	email {$ACME_EMAIL:admin@example.invalid}
 	admin off
+	# CADDY_TLS=internal: the local CA root cannot be installed in a container trust store.
+	skip_install_trust
 	servers {
 		# Seul cloudflared (IP fixe sur le réseau Docker) peut transmettre l'IP réelle du
 		# client : ni un poste du LAN ni la passerelle Docker ne peuvent usurper une IP admin.
@@ -24,6 +28,8 @@
 }
 
 (securite) {
+	# TLS mode: caddy/tls/acme (default, Let's Encrypt or plain HTTP) or caddy/tls/internal.
+	import tls/{$CADDY_TLS:acme}
 	encode zstd gzip
 	header {
 		Strict-Transport-Security "max-age=31536000"
@@ -43,11 +49,12 @@
 }
 
 # --- Passerelle API (LiteLLM) -------------------------------------------------
-# Liste blanche : seules les routes de chat (OpenAI + Anthropic) et la liste des modèles
-# sont publiques, et exigent une clé virtuelle. Pas de /v1/completions, /v1/embeddings ni
-# /v1/responses : leur texte n'est pas dans messages[], que le guardrail Presidio analyse.
-# Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…) est de l'administration,
-# réservée à ADMIN_ALLOWED_IPS.
+# Liste blanche : seules les routes utilisées par les clients prévus (chat OpenAI pour
+# Open WebUI / OpenCode / scripts, Anthropic /v1/messages pour Claude Code, liste des
+# modèles) sont publiques, et exigent une clé virtuelle. Surface minimale : pas de
+# /v1/completions, /v1/embeddings, /v1/responses, /v1/files… tant qu'aucun usage ne le
+# demande. Tout le reste (UI /ui, /login, /key/*, /team/*, /config/*…) est de
+# l'administration, réservée à ADMIN_ALLOWED_IPS.
 {$LITELLM_SITE} {
 	import securite
 	request_body {
@@ -70,18 +77,5 @@
 	handle {
 		import admin_seulement
 		reverse_proxy litellm:4000
-	}
-}
-
-# --- Authentik (profil sso uniquement ; 502 tant que le profil n'est pas lancé) ---
-{$AUTHENTIK_SITE} {
-	import securite
-	@console path /if/admin /if/admin/*
-	handle @console {
-		import admin_seulement
-		reverse_proxy authentik-server:9000
-	}
-	handle {
-		reverse_proxy authentik-server:9000
 	}
 }

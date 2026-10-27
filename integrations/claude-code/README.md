@@ -3,7 +3,7 @@
 LiteLLM expose le format Anthropic sur `https://api.<domaine>/v1/messages` et le
 traduit vers n'importe quel modèle de la passerelle. Claude Code s'y connecte avec la
 clé virtuelle **claude-code** (modèles `glm`, `devstral`, `mistral-medium`, budget
-2 $/30 j, guardrail `pii-dev`).
+2 $/30 j).
 
 Sources vérifiées : <https://code.claude.com/docs/en/llm-gateway-connect> et
 <https://docs.litellm.ai/docs/proxy/client_setup/claude_code>.
@@ -11,8 +11,9 @@ Sources vérifiées : <https://code.claude.com/docs/en/llm-gateway-connect> et
 ## Installation
 
 Le plus simple : le bloc `env` de `~/.claude/settings.json` (s'applique aussi aux agents
-en arrière-plan). Copier [`settings.json`](settings.json), remplacer le domaine et la clé
-(`LITELLM_KEY_CLAUDECODE` du `.env`), puis :
+en arrière-plan). Copier [`settings.example.json`](settings.example.json) vers
+`~/.claude/settings.json` (jamais dans le dépôt : il contiendra une clé), remplacer le domaine
+et la clé (`LITELLM_KEY_CLAUDECODE` du `.env`), puis :
 
 ```bash
 unset ANTHROPIC_API_KEY   # sinon Claude Code l'enverrait à la place de la clé virtuelle
@@ -55,7 +56,7 @@ Les variables `ANTHROPIC_DEFAULT_*_MODEL` font envoyer `glm` / `mistral-medium` 
   ```bash
   ./scripts/litellm-api.sh POST /key/generate '{"key_alias":"claude-code-dev","team_id":"demo",
     "models":["claude-sonnet"],"max_budget":50,"budget_duration":"30d",
-    "metadata":{"usage":"dev","opted_out_global_guardrails":["pii-standard"]}}'
+    "metadata":{"usage":"dev"}}'
   ./scripts/litellm-api.sh POST /team/update '{"team_id":"demo","models":["mistral-small","mistral-medium","glm","devstral","claude-sonnet"]}'
   ```
   (une clé ne peut utiliser que des modèles autorisés aussi pour son équipe).

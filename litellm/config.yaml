@@ -1,6 +1,6 @@
 # =============================================================================
 # LiteLLM — passerelle unique pour TOUS les usages (chat, agents de code, automatisations)
-# Version vérifiée : ghcr.io/berriai/litellm:v1.106.4
+# Version vérifiée : ghcr.io/berriai/litellm:v1.106.2 (voir docker-compose.yml)
 #
 # Fichier de base (Mistral uniquement). Pour activer Scaleway : LITELLM_CONFIG=config.scaleway.yaml
 # dans .env (ce fichier est alors inclus et complété).
@@ -82,58 +82,10 @@ model_list:
   #     model: deepseek/deepseek-chat
   #     api_key: os.environ/DEEPSEEK_API_KEY
 
-# =============================================================================
-# Guardrails Presidio (français), en mode pre_call : le texte est analysé et masqué
-# AVANT de partir chez le fournisseur ; le fournisseur, les journaux et la base ne
-# voient que la version masquée.
-#
-# Deux variantes, toutes deux default_on, chacune en UNE seule passe :
-#   pii-standard : chat et automatisations (noms de personnes masqués)
-#   pii-dev      : agents de code — PERSON désactivé (il corromprait des identifiants
-#                  comme « class CamilleDurand »), tout le reste identique
-# Sélection sans LiteLLM Enterprise via la métadonnée opted_out_global_guardrails :
-#   équipe « demo »          → se retire de pii-dev   (donc pii-standard)
-#   clés opencode/claude-code → se retirent de pii-standard (donc pii-dev)
-# Une clé créée sans métadonnée passe par les deux : protégée par défaut.
-# Si Presidio est injoignable, les requêtes sont refusées (fail-closed dès qu'une
-# action BLOCK est configurée).
-# =============================================================================
-guardrails:
-  - guardrail_name: pii-standard
-    litellm_params:
-      guardrail: presidio
-      mode: pre_call
-      default_on: true
-      presidio_language: fr
-      presidio_filter_scope: input   # entrée seulement : ne pas masquer les réponses du modèle
-      pii_entities_config:
-        CREDIT_CARD: BLOCK
-        FR_NIR: BLOCK                # reconnaisseur personnalisé (presidio/conf)
-        IBAN_CODE: MASK
-        EMAIL_ADDRESS: MASK
-        PHONE_NUMBER: MASK
-        PERSON: MASK
-      presidio_score_thresholds:
-        PERSON: 0.6                  # limite les faux positifs du NER spaCy
-
-  - guardrail_name: pii-dev
-    litellm_params:
-      guardrail: presidio
-      mode: pre_call
-      default_on: true
-      presidio_language: fr
-      presidio_filter_scope: input   # entrée seulement : ne pas masquer les réponses du modèle
-      pii_entities_config:
-        CREDIT_CARD: BLOCK
-        FR_NIR: BLOCK
-        IBAN_CODE: MASK
-        EMAIL_ADDRESS: MASK
-        PHONE_NUMBER: MASK
-
 litellm_settings:
   drop_params: true                  # ignore les paramètres non supportés par un fournisseur
-  # Journaux : métadonnées uniquement (clé, utilisateur, modèle, tokens, coût, résultat
-  # des guardrails). Le contenu des prompts/réponses n'est envoyé à aucun callback.
+  # Journaux : métadonnées uniquement (clé, utilisateur, modèle, tokens, coût).
+  # Le contenu des prompts/réponses n'est envoyé à aucun callback.
   turn_off_message_logging: true
   # Plafond GLOBAL de la passerelle, en USD (LiteLLM compte en dollars) :
   # 9 $ ≈ 8 € → reste dans l'allocation gratuite Mistral. Production : ~165 $ (≈150 €).
