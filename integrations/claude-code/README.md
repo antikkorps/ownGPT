@@ -11,8 +11,9 @@ Sources vérifiées : <https://code.claude.com/docs/en/llm-gateway-connect> et
 ## Installation
 
 Le plus simple : le bloc `env` de `~/.claude/settings.json` (s'applique aussi aux agents
-en arrière-plan). Copier [`settings.json`](settings.json), remplacer le domaine et la clé
-(`LITELLM_KEY_CLAUDECODE` du `.env`), puis :
+en arrière-plan). Copier [`settings.example.json`](settings.example.json) vers
+`~/.claude/settings.json` (jamais dans le dépôt : il contiendra une clé), remplacer le domaine
+et la clé (`LITELLM_KEY_CLAUDECODE` du `.env`), puis :
 
 ```bash
 unset ANTHROPIC_API_KEY   # sinon Claude Code l'enverrait à la place de la clé virtuelle
@@ -44,6 +45,10 @@ Les variables `ANTHROPIC_DEFAULT_*_MODEL` font envoyer `glm` / `mistral-medium` 
 
 ## Limites à annoncer honnêtement
 
+- **Filtrage Presidio partiel au format Anthropic** : le champ `system` et les résultats
+  d'outils (`tool_result`, donc le contenu des fichiers lus) ne sont pas analysés par le
+  guardrail LiteLLM ; seuls les messages texte le sont. Ne pas utiliser Claude Code sur un dépôt
+  contenant des données personnelles réelles.
 - **Anthropic ne prend pas en charge Claude Code avec des modèles non-Claude** (doc
   officielle des passerelles). Ça fonctionne techniquement, mais Claude Code est optimisé
   pour Claude : avec GLM, attendre plus d'erreurs d'outils, des plans moins fiables et

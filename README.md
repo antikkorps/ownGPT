@@ -93,7 +93,7 @@ scripts/             gen-secrets, create-keys, litellm-api, test-presidio, test-
 | **Démo** (quelques testeurs) | **8 Go** (tient avec le profil `sso`) | 2–4 | 40 Go |
 | **Production ~30 utilisateurs** | **16 Go conseillés** (pics d'indexation de documents, plusieurs workers LiteLLM, SSO, marge) | 4–8 | 80 Go + sauvegardes externes |
 
-Le serveur maison (64 Go) est largement suffisant. Une offre VPS à 1 Go **ne suffit pas**.
+Un serveur maison de 16 Go ou plus convient largement. Une offre VPS à 1 Go **ne suffit pas**.
 Aucun GPU n'est nécessaire : seuls l'embedding (RAG) et spaCy tournent localement, sur CPU.
 
 ## 3. Clés API des fournisseurs
@@ -162,7 +162,11 @@ docker compose --profile tunnel up -d --build     # 5–7 min au premier lanceme
 > Acceptable pour des données fictives ; en production, serveur chez un hébergeur français
 > avec HTTPS de bout en bout (mode VPS).
 
-**LAN sans tunnel** : `OPENWEBUI_SITE=http://chat.192-168-1-10.nip.io`,
+**LAN sans tunnel** ⚠️ en HTTP simple, mots de passe, cookies de session et clés virtuelles
+circulent **en clair sur le réseau local** : tout poste du LAN (ou du Wi-Fi invité s'il n'est pas
+isolé) peut les intercepter. À réserver à un réseau de confiance, avec `HTTP_BIND` sur l'IP LAN
+du serveur plutôt que `0.0.0.0` ; sinon utiliser le tunnel ou un VPN.
+`OPENWEBUI_SITE=http://chat.192-168-1-10.nip.io`,
 `LITELLM_SITE=http://api.192-168-1-10.nip.io`, `OPENWEBUI_URL=` idem, `HTTP_BIND=0.0.0.0`,
 puis `docker compose up -d --build`. (`nip.io` résout `x-x-x-x.nip.io` vers l'IP `x.x.x.x`.)
 
@@ -282,6 +286,12 @@ Analyse **avant** l'envoi au fournisseur (`pre_call`, entrée seulement), en fra
   (`{"PERSON": 1, "PHONE_NUMBER": 1}`), la réponse brute de Presidio est caviardée par LiteLLM
   et le contenu des messages n'est jamais écrit (§7.4). Le fournisseur et les journaux ne
   voient que le texte masqué.
+- **Couverture** (lue dans le code de LiteLLM 1.106.4) : Presidio analyse le texte de chaque
+  message (`messages[].content`, chaîne ou blocs `text`) : chat, prompts système d'Open WebUI,
+  documents injectés par le RAG, résultats d'outils au format OpenAI (OpenCode). Il **n'analyse
+  pas** : les images, les arguments d'appels d'outils, et pour `/v1/messages` (Claude Code) le
+  champ `system` de premier niveau et les blocs `tool_result` — un fichier lu par Claude Code
+  n'est donc pas filtré. Pour les agents de code : pas de dépôt contenant des données réelles.
 - **Limites** (à annoncer) : détection statistique. Mesuré sur 20 consignes de bureau : 1 faux
   « nom » (« Traduis… » en début de phrase) avec `lg`, 3 avec `md` ; 8 noms sur 8 détectés.
   Un nom rare, mal orthographié ou en minuscules peut passer. Presidio est un **filet de

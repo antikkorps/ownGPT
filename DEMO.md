@@ -169,7 +169,7 @@ utilisateur (*Customers* : `standard@demo.example.com`…), par modèle ; budget
 **Où vont les données ?**
 Interface, comptes, historique, documents et index de recherche restent sur notre serveur.
 Seul le texte de la requête, après masquage, part chez le fournisseur choisi : Mistral
-(France/UE) ou Scaleway (Paris). Pendant la démo, le serveur est chez moi et l'accès passe par
+(France/UE) ou Scaleway (Paris). Pendant la démo, le serveur de démonstration est hébergé hors datacenter et l'accès passe par
 Cloudflare Tunnel : Cloudflare termine le chiffrement HTTPS et voit donc le trafic en clair.
 Acceptable pour des données fictives ; en production, hébergement français avec HTTPS de bout
 en bout jusqu'à notre serveur, sans intermédiaire.
@@ -185,7 +185,10 @@ LiteLLM : date, clé, utilisateur, modèle, tokens, coût, et le résultat du fi
 base). Conservation : 90 jours.
 
 **Et si Presidio rate quelque chose ?**
-C'est une détection statistique : un filet de sécurité, pas une garantie. Mesuré : tous les
+C'est une détection statistique : un filet de sécurité, pas une garantie. Il analyse le texte
+des messages (chat, documents injectés, résultats d'outils au format OpenAI), mais pas les
+images, ni le prompt système de premier niveau et les résultats d'outils du format Anthropic
+utilisé par Claude Code : ces usages-là restent sous la règle « pas de données réelles ». Mesuré : tous les
 noms courants détectés, quelques faux positifs. Ce qui passe ne part que chez un fournisseur
 sous contrat (DPA, zéro rétention, UE). La règle reste : pas de données sensibles réelles sans
 validation, et formation des utilisateurs. Les cartes et NIR (clé de contrôle vérifiée) sont

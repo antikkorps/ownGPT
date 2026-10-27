@@ -5,20 +5,31 @@
 secrets*.txt
 *.pem
 *.key
+*.p12
+*.pfx
+*.jks
+.netrc
 integrations/**/.env
 
-# --- Backups (encrypted, but still company data) ---
+# --- Backups and dumps (encrypted or not, still company data) ---
 backups/
 *.tar.enc
+*.tar.enc.mac
 *.tar.enc.sha256
+*.sql
+*.sql.gz
+*.dump
+*.bak
 
 # --- Local overrides (machine-specific ports, test models, extra_hosts) ---
 docker-compose.override.yml
 compose.override.yml
 
 # --- Local tool settings that may hold a gateway key ---
-.claude/settings.local.json
+.claude/
 opencode.local.json
+*.local.*
+integrations/claude-code/settings.json
 
 # --- Python ---
 __pycache__/
