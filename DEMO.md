@@ -91,6 +91,27 @@ Montrer les **sources citées** (procédure notes de frais, charte télétravail
 > « L'assistant répond à partir de nos procédures, et cite ses sources. Les documents sont
 > indexés sur notre serveur : rien n'est envoyé à un service externe pour la recherche. »
 
+Puis, avec `mistral-small`, joindre un **`.docx` fictif** (par exemple
+`seed/knowledge/procedure-notes-de-frais.md` enregistré en Word) :
+
+```
+Résume ce document et propose deux améliorations.
+```
+puis :
+```
+Vas-y, modifie sur une copie.
+```
+
+Le modèle lit le document en entier, applique les modifications et donne un lien vers
+`… (modifié).docx` : mise en forme conservée, original intact. Enchaîner avec :
+```
+Ajoute un visuel des étapes et un tableau des responsables.
+```
+La copie reçoit un schéma des étapes (image) et un vrai tableau Word.
+
+> « On travaille sur nos documents Word comme on en a l'habitude : l'outil rend un fichier,
+> pas seulement du texte à recopier. »
+
 ## 5. Créer un assistant en 2 minutes, sans développement (2 min 30)
 
 *Workspace → Models → +* :
@@ -225,9 +246,10 @@ pour tout modèle.
 - [ ] `docker compose ps` : tous les services `healthy`
 - [ ] `./scripts/test-hardening.sh` et `./scripts/test-backup.sh` → **RÉSULTAT : OK**
 - [ ] `./scripts/test-models.sh` → **RÉSULTAT : OK** (fallback Scaleway inclus s'il est configuré)
+- [ ] `./scripts/test-word-tool.sh` → **RÉSULTAT : OK** (copie Word modifiée, original intact)
 - [ ] Comptes de démo : `CREATE_DEMO_USERS=true` + import, connexion `standard@demo.example.com`
       et `avance@demo.example.com`
-- [ ] Seed présent : 2 assistants, 3 prompts, 1 skill, Knowledge « Procédures internes »
+- [ ] Seed présent : 2 assistants, 3 prompts, 1 skill, 1 Tool Word, Knowledge « Procédures internes »
       (`docker compose exec openwebui python3 /seed/import_seed.py` est relançable)
 - [ ] Clés des intégrations testées : `opencode run "dis bonjour"`, `resume_document.py`
 - [ ] Budget restant suffisant : LiteLLM → *Usage* (global < 9 $) et console Mistral

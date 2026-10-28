@@ -26,6 +26,7 @@ docker compose exec openwebui python3 /seed/import_seed.py # groups, users, assi
 ./caddy/test-caddy.sh                                      # route exposure test (offline)
 ./scripts/test-hardening.sh                                # container hardening (stack up)
 ./scripts/test-models.sh [--sans-panne]                    # e2e models, tools, /v1/messages, fallback
+./scripts/test-word-tool.sh                                # Word copy tool: unit tests + e2e (stack up)
 ./scripts/litellm-api.sh GET /key/list                     # LiteLLM admin API with the master key
 ./scripts/list-provider-models.sh mistral|scaleway         # real model ids + tool support
 ./scripts/backup.sh  /  ./scripts/restore.sh <archive>     # archive + .mac (HMAC), verified first
@@ -43,7 +44,8 @@ It checks Bash/Python/JSON syntax, the Compose config and the Caddy routing/TLS 
 with small images only. The git `pre-push` hook and CI (`.github/workflows/checks.yml`) run it.
 
 When a change touches keys, models or containers, also run `test-models.sh`,
-`test-hardening.sh` and `test-backup.sh` on a running stack and paste their output in the PR.
+`test-hardening.sh` and `test-backup.sh` on a running stack and paste their output in the PR
+(`test-word-tool.sh` too when it touches `seed/` or Open WebUI).
 
 ## Workflow
 
@@ -70,7 +72,7 @@ When a change touches keys, models or containers, also run `test-models.sh`,
 | `caddy/Caddyfile` | Sites from `OPENWEBUI_SITE` / `LITELLM_SITE` (mode switch), `caddy/tls/` modes |
 | `litellm/config.yaml` | Mistral models, budgets, metadata-only logging |
 | `litellm/config.scaleway.yaml` | `include:` of config.yaml + Scaleway models + fallbacks (`LITELLM_CONFIG`) |
-| `seed/` | Open WebUI workspace as data + `import_seed.py` / `owui_client.py` (REST API) |
+| `seed/` | Open WebUI workspace as data + `import_seed.py` / `library.py` / `owui_client.py` (REST API); `tools/` = Tools (+ `test_*.py`, run in the openwebui container) |
 | `scripts/` | `lib.sh` (shared helpers, sourced by every script) + ops and test scripts; `check.sh` = pre-push checks |
 | `.github/workflows/` | CI: `check.sh` on every PR and on `main` |
 | `integrations/` | OpenCode, Claude Code, automation examples (one virtual key each) |
@@ -112,7 +114,9 @@ Security invariants
   `X-LiteLLM-*` on the whole API site. `caddy/test-caddy.sh` must stay green.
 - Keep `store_prompts_in_spend_logs: false` and `turn_off_message_logging: true`: logs hold
   metadata only.
-- Tools / Functions (server-side Python) stay admin-only.
+- Tools / Functions (server-side Python) stay admin-only: only the admin creates them; seed
+  tools (`seed/tools/`, reviewed in the repo) may be *used* by groups. A tool reads only files
+  the calling user owns and attached to the chat.
 - Every service keeps `no-new-privileges` and `cap_drop: [ALL]` (add back only what is
   proven necessary); PostgreSQL stays on the `internal: true` network `donnees`.
   `scripts/test-hardening.sh` must stay green.

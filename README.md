@@ -67,7 +67,7 @@ Arborescence :
 ```
 docker-compose.yml   .env.example   caddy/Caddyfile   postgres/init/
 litellm/config.yaml  litellm/config.scaleway.yaml
-seed/                assistants, prompts, skill, documents fictifs, groupes + import_seed.py
+seed/                assistants, prompts, skill, Tool Word (tools/), documents fictifs, groupes + import_seed.py
 integrations/        opencode/  claude-code/  automation/
 scripts/             gen-secrets, create-keys, litellm-api, test-models, test-hardening,
                      test-backup, list-provider-models, backup, restore, export-ca, check
@@ -223,7 +223,7 @@ Toutes les étapes sont scriptées et idempotentes (relançables sans risque).
 docker compose ps                                     # tous « healthy » (Open WebUI : ~3 min la 1re fois)
 ./scripts/create-keys.sh                              # budgets, équipe « demo », 4 clés virtuelles
 docker compose exec openwebui python3 /seed/import_seed.py   # groupes, comptes, droits, assistants…
-./scripts/test-models.sh && ./scripts/test-hardening.sh
+./scripts/test-models.sh && ./scripts/test-hardening.sh && ./scripts/test-word-tool.sh
 ```
 
 1. **Administrateur Open WebUI** : créé automatiquement au premier démarrage avec
@@ -237,8 +237,11 @@ docker compose exec openwebui python3 /seed/import_seed.py   # groupes, comptes,
    (détail et justification en [§7.1](#71-permissions-open-webui)). Ajouter une personne :
    *Admin → Users → +* puis *Admin → Users → Groups → standard/avancé*.
 4. **Seed** : 2 assistants, 1 base Knowledge de 3 procédures fictives (indexée localement),
-   3 prompts `/compte-rendu`, `/mail-relance`, `/resume`, 1 skill « reclamation-client ».
-   Import manuel possible : *Workspace → Models / Prompts / Skills → Import* (le skill
+   3 prompts `/compte-rendu`, `/mail-relance`, `/resume`, 1 skill « reclamation-client »,
+   1 Tool « Copie modifiée d'un document Word » (`seed/tools/word_copy.py`), activé par défaut
+   sur les modèles de base : le modèle lit un `.docx` joint **en entier** (sans lui, il n'en voit
+   que 3 extraits) et rend une **copie modifiée** à télécharger (texte, tableau Word, schéma des
+   étapes en image), mise en forme conservée, original intact. Import manuel possible : *Workspace → Models / Prompts / Skills → Import* (le skill
    s'importe directement depuis `seed/skills/reclamation-client.md`).
 5. **Comptes de démo** : `standard@demo.example.com` et `avance@demo.example.com`, créés
    seulement si `CREATE_DEMO_USERS=true` (puis `docker compose up -d openwebui` et relancer
@@ -273,6 +276,10 @@ Pourquoi :
 - **Tools / Functions = exécution de code arbitraire sur le serveur** (équivalent d'un accès
   root au conteneur, avec accès à ses secrets). Aucun utilisateur n'y a accès ; testé : création
   refusée (HTTP 401) pour standard et avancé.
+- Seule exception, maîtrisée : le Tool Word du seed, versionné et relu dans ce dépôt, est
+  installé par l'admin et seulement **utilisable** par standard et avancé. Il ne lit que les
+  `.docx` joints au chat par l'utilisateur lui-même (propriétaire vérifié) et n'écrit que de
+  nouveaux fichiers à son nom, téléchargeables par lui seul.
 - L'accès aux modèles est porté par les **droits d'accès de chaque modèle** (lecture accordée
   à un groupe), posés par `import_seed.py` depuis `seed/groups.json` (`model_access`).
 - Le partage est réservé à « avancé » pour éviter la prolifération d'assistants non relus.
