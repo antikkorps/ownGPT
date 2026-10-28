@@ -12,6 +12,7 @@ import os
 import sys
 import time
 
+from library import sync_prompts, sync_skills, sync_tools
 from owui_client import Api, items
 
 SEED = os.path.dirname(os.path.abspath(__file__))
@@ -91,13 +92,13 @@ def upsert_model(api, form):
         api.call("POST", "/api/v1/models/create", form)
 
 
-def grant_base_models(api, spec, group_ids):
-    """Restrict each LiteLLM model to the groups allowed to use it."""
+def grant_base_models(api, spec, group_ids, tool_ids):
+    """Restrict each LiteLLM model to the groups allowed to use it; enable the seed tools on it."""
     available = [m["id"] for m in api.call("GET", "/api/models")["data"] if not m.get("info", {}).get("base_model_id")]
     for model_id in available:
         groups = [g for g, models in spec["model_access"].items()
                   if model_id in models or any(p.endswith("*") and model_id.startswith(p[:-1]) for p in models)]
-        form = {"id": model_id, "name": model_id, "base_model_id": None, "meta": {}, "params": {},
+        form = {"id": model_id, "name": model_id, "base_model_id": None, "meta": {"toolIds": tool_ids}, "params": {},
                 "access_grants": read_grants(group_ids, groups), "is_active": True}
         upsert_model(api, form)
         print(f"modèle      {model_id} -> {', '.join(groups) or 'admins uniquement'}")
@@ -151,39 +152,6 @@ def sync_assistants(api, group_ids):
         print(f"assistant   {spec['name']}")
 
 
-def sync_prompts(api, group_ids):
-    commands = {p["command"] for p in items(api.call("GET", "/api/v1/prompts/"))}
-    for path in sorted(glob.glob(os.path.join(SEED, "prompts", "*.json"))):
-        spec = json.load(open(path, encoding="utf-8"))
-        spec["access_grants"] = everyone(group_ids)
-        if spec["command"] in commands:
-            print(f"prompt      /{spec['command']} (déjà présent)")
-            continue
-        api.call("POST", "/api/v1/prompts/create", spec)
-        print(f"prompt      /{spec['command']}")
-
-
-def parse_skill(path):
-    text = open(path, encoding="utf-8").read()
-    _, front, body = text.split("---", 2)
-    fields = dict(line.split(":", 1) for line in front.strip().splitlines())
-    return {k.strip(): v.strip() for k, v in fields.items()}, body.strip()
-
-
-def sync_skills(api, group_ids):
-    existing = {s["id"] for s in items(api.try_call("GET", "/api/v1/skills/"))}
-    for path in sorted(glob.glob(os.path.join(SEED, "skills", "*.md"))):
-        fields, body = parse_skill(path)
-        form = {"id": fields["name"], "name": fields["name"], "description": fields["description"],
-                "content": body, "is_active": True, "meta": {"tags": []},
-                "access_grants": everyone(group_ids)}
-        if fields["name"] in existing:
-            api.call("POST", f"/api/v1/skills/id/{fields['name']}/update", form)
-        else:
-            api.call("POST", "/api/v1/skills/create", form)
-        print(f"skill       {fields['name']}")
-
-
 def main():
     api = Api()
     api.signin()
@@ -192,11 +160,12 @@ def main():
         remove_demo_users(api, spec)
         return
     group_ids = sync_groups(api, spec)
+    tool_ids = sync_tools(api, everyone(group_ids))
     sync_users(api, spec, group_ids)
-    grant_base_models(api, spec, group_ids)
+    grant_base_models(api, spec, group_ids, tool_ids)
     sync_assistants(api, group_ids)
-    sync_prompts(api, group_ids)
-    sync_skills(api, group_ids)
+    sync_prompts(api, everyone(group_ids))
+    sync_skills(api, everyone(group_ids))
     print("Import terminé.")
 
 

@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SHELL_FILES=(scripts/*.sh caddy/*.sh postgres/init/*.sh integrations/automation/*.sh)
-PY_FILES=(seed/*.py integrations/automation/*.py caddy/test/*.py)
+PY_FILES=(seed/*.py seed/tools/*.py integrations/automation/*.py caddy/test/*.py)
 JSON_FILES=(seed/*.json seed/*/*.json integrations/*/*.json)
 
 echo "== Syntaxe Bash"
