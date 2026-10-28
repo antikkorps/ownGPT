@@ -103,7 +103,11 @@ Vas-y, modifie sur une copie.
 ```
 
 Le modèle lit le document en entier, applique les modifications et donne un lien vers
-`… (modifié).docx` : mise en forme conservée, original intact.
+`… (modifié).docx` : mise en forme conservée, original intact. Enchaîner avec :
+```
+Ajoute un visuel des étapes et un tableau des responsables.
+```
+La copie reçoit un schéma des étapes (image) et un vrai tableau Word.
 
 > « On travaille sur nos documents Word comme on en a l'habitude : l'outil rend un fichier,
 > pas seulement du texte à recopier. »

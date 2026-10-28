@@ -3,6 +3,7 @@
     docker compose exec openwebui python3 -m unittest discover -s /seed/tools -v
 """
 import asyncio
+import io
 import os
 import sys
 import tempfile
@@ -11,6 +12,7 @@ import unittest
 
 from docx import Document
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import word_copy  # noqa: E402
@@ -107,6 +109,36 @@ class ApplyChanges(unittest.TestCase):
         self.assertEqual([p.text for p in paragraphs[1:3]], ["Ligne A", "Ligne B"])
         self.assertEqual(paragraphs[1].style.name, "Normal")
 
+    def test_bare_heading_marker_is_not_a_target(self):
+        done, failed = self.apply({"action": "supprimer", "cible": "# "})
+        self.assertEqual(done, 0)
+        self.assertEqual(self.doc.paragraphs[0].text, "Note de cadrage")
+
+    def test_literal_hash_in_text_can_be_targeted(self):
+        self.doc.add_paragraph("#2 Décision reportée")
+        done, _ = self.apply({"action": "remplacer", "cible": "#2 Décision", "texte": "#3 Décision"})
+        self.assertEqual(done, 1)
+        self.assertIn("#3 Décision reportée", texts(self.doc))
+
+    def test_inserts_on_the_same_target_keep_their_order(self):
+        self.apply({"action": "inserer_apres", "cible": "30 jours", "texte": "A"},
+                   {"action": "inserer_apres", "cible": "30 jours", "texte": "B"},
+                   {"action": "inserer_tableau", "cible": "30 jours", "lignes": [["T"]]})
+        body = [el for el in self.doc.element.body.iterchildren() if el.tag.split("}")[1] in ("p", "tbl")]
+        kinds = ["tbl" if el.tag.endswith("tbl") else "".join(t.text or "" for t in el.iter(qn("w:t"))) for el in body]
+        start = kinds.index("Les justificatifs sont à envoyer sous 30 jours.")
+        self.assertEqual(kinds[start + 1:start + 4], ["A", "B", "tbl"])
+
+    def test_too_many_changes_are_refused(self):
+        done, failed = self.apply(*[{"action": "supprimer", "cible": "zzz"}] * (word_copy.MAX_CHANGES + 1))
+        self.assertEqual(done, 0)
+        self.assertEqual(len(failed), 1)
+
+    def test_heading_marker_from_lire_document_is_accepted_in_target(self):
+        done, failed = self.apply({"action": "inserer_apres", "cible": "# Note de cadrage", "texte": "Intro"})
+        self.assertEqual((done, failed), (1, []))
+        self.assertEqual(self.doc.paragraphs[1].text, "Intro")
+
     def test_delete_paragraph(self):
         self.apply({"action": "supprimer", "cible": "30 jours"})
         self.assertNotIn("Les justificatifs sont à envoyer sous 30 jours.", texts(self.doc))
@@ -120,6 +152,88 @@ class ApplyChanges(unittest.TestCase):
         self.assertEqual(len(failed), 2)
         self.assertIn("introuvable", failed[0])
         self.assertIn("renommer", failed[1])
+
+
+def reloaded(doc):
+    """Round trip through a file: Word-level validity, not just in-memory XML."""
+    buffer = io.BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
+    return Document(buffer)
+
+
+class Visuals(unittest.TestCase):
+    ROWS = [["Étape", "Livrable"], ["POC", "Rapport de test"], ["Recette", "PV signé"]]
+    STEPS = ["Kickoff", "Cadrage détaillé des besoins métier et des contraintes", "POC", "Recette", "Déploiement"]
+
+    def setUp(self):
+        self.doc = sample()
+
+    def test_table_inserted_right_after_target_with_bold_header(self):
+        done, failed = word_copy.apply_changes(self.doc, [
+            {"action": "inserer_tableau", "cible": "Budget", "lignes": self.ROWS}])
+        self.assertEqual((done, failed), (1, []))
+        doc = reloaded(self.doc)
+        anchor = doc.paragraphs[1]._p
+        self.assertEqual(anchor.getnext().tag.split("}")[1], "tbl")
+        table = doc.tables[0]
+        self.assertEqual([c.text for c in table.rows[1].cells], ["POC", "Rapport de test"])
+        self.assertTrue(all(r.bold for r in table.rows[0].cells[0].paragraphs[0].runs))
+
+    def test_table_borders_respect_word_schema_order(self):
+        word_copy.apply_changes(self.doc, [{"action": "inserer_tableau", "cible": "Budget", "lignes": self.ROWS}])
+        children = [c.tag.split("}")[1] for c in self.doc.paragraphs[1]._p.getnext().tblPr]
+        self.assertLess(children.index("tblBorders"), children.index("tblLook"))
+
+    def test_none_cell_is_empty_and_nested_cell_is_refused(self):
+        done, _ = word_copy.apply_changes(self.doc, [
+            {"action": "inserer_tableau", "cible": "Budget", "lignes": [["a", None]]}])
+        self.assertEqual(done, 1)
+        self.assertEqual(self.doc.paragraphs[1]._p.getnext().xpath("string(.)"), "a")
+        done, failed = word_copy.apply_changes(self.doc, [
+            {"action": "inserer_tableau", "cible": "Budget", "lignes": [["a", ["b"]]]},
+            {"action": "inserer_tableau", "cible": "Budget", "lignes": [["x" * (word_copy.MAX_CELL + 1)]]},
+            {"action": "inserer_schema_etapes", "cible": "Budget", "etapes": ["a", "x" * (word_copy.MAX_LABEL + 1)]}])
+        self.assertEqual((done, len(failed)), (0, 3))
+
+    def test_diagram_has_alt_text_and_readable_labels(self):
+        word_copy.apply_changes(self.doc, [{"action": "inserer_schema_etapes", "cible": "30 jours", "etapes": self.STEPS}])
+        self.assertIn("Kickoff", self.doc.inline_shapes[0]._inline.docPr.get("descr"))
+        points = word_copy.FONT_SIZE * (16 / 2.54 * 72) / word_copy.full_row_width()
+        self.assertGreaterEqual(points, 9)
+
+    def test_table_in_a_cell_keeps_the_cell_ending_with_a_paragraph(self):
+        word_copy.apply_changes(self.doc, [{"action": "inserer_tableau", "cible": "Pilote", "lignes": self.ROWS}])
+        cell = reloaded(self.doc).tables[0].cell(0, 0)
+        self.assertEqual(cell._tc[-1].tag.split("}")[1], "p")
+
+    def test_step_diagram_is_a_png_picture_after_target(self):
+        done, failed = word_copy.apply_changes(self.doc, [
+            {"action": "inserer_schema_etapes", "cible": "30 jours", "etapes": self.STEPS}])
+        self.assertEqual((done, failed), (1, []))
+        doc = reloaded(self.doc)
+        self.assertEqual(len(doc.inline_shapes), 1)
+        texts = [p.text for p in doc.paragraphs]
+        picture = next(i for i, p in enumerate(doc.paragraphs) if p._p.xpath(".//w:drawing"))
+        self.assertEqual(texts[picture - 1], "Les justificatifs sont à envoyer sous 30 jours.")
+
+    def test_wrapped_labels_fit_their_box(self):
+        font = word_copy.load_font()
+        lines = word_copy.wrap(" ".join([self.STEPS[1]] * 3), font, 330)
+        self.assertEqual(len(lines), 3)
+        self.assertTrue(all(font.getlength(line) <= 330 for line in lines), lines)
+
+    def test_draw_steps_returns_png(self):
+        self.assertTrue(word_copy.draw_steps(self.STEPS).startswith(b"\x89PNG"))
+
+    def test_invalid_visual_arguments_are_reported(self):
+        done, failed = word_copy.apply_changes(self.doc, [
+            {"action": "inserer_tableau", "cible": "Budget", "lignes": []},
+            {"action": "inserer_tableau", "cible": "Budget", "lignes": [["a"], "pas une ligne"]},
+            {"action": "inserer_schema_etapes", "cible": "Budget", "etapes": ["seule"]},
+            {"action": "inserer_schema_etapes", "cible": "Budget", "etapes": ["x"] * 13}])
+        self.assertEqual(done, 0)
+        self.assertEqual(len(failed), 4)
 
 
 class PickFile(unittest.TestCase):

@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Checks the "Word copy" tool on the running stack (after import_seed.py):
 #   - unit tests of the .docx logic (inside the openwebui container: python-docx)
-#   - end to end: a fictitious .docx is attached to a saved chat, mistral-small is asked to
-#     "edit a copy"; the answer must link a new .docx with the change, the original intact.
-# The chat, the uploaded file and the copy are deleted afterwards.
+#   - end to end: a fictitious .docx is attached to a saved chat and mistral-small is asked
+#     (1) to "edit a copy": the answer links a new .docx with the change, the original intact;
+#     (2) to add a step diagram and a table: the copy holds a picture and a Word table.
+# The chats, the uploaded file and the copies are deleted afterwards.
 # Usage: ./scripts/test-word-tool.sh
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"
@@ -47,20 +48,38 @@ def download(file_id):
     path = os.path.join(tempfile.mkdtemp(), "copie.docx")
     with urllib.request.urlopen(req, timeout=60) as r, open(path, "wb") as f:
         f.write(r.read())
-    return "\n".join(p.text for p in Document(path).paragraphs)
+    return Document(path)
 
-source, chat_id, answer, copy, original, link = api.upload(fixture())["id"], None, "", "", "", None
-try:
-    chat_id, answer = ask(source, "Passe le plafond hôtel à 150 € par nuit. Vas-y, modifie sur une copie.")
+def text(doc):
+    return "\n".join(p.text for p in doc.paragraphs) if doc else ""
+
+def scenario(source, prompt, created):
+    """Asks, records what to delete, returns (answer, edited copy or None)."""
+    chat_id, answer = ask(source, prompt)
+    created.append(f"/api/v1/chats/{chat_id}")
     link = re.search(r"/api/v1/files/([0-9a-f-]+)/content", answer)
-    copy, original = (download(link.group(1)) if link else ""), download(source)
+    if not link:
+        return answer, None
+    created.append(f"/api/v1/files/{link.group(1)}")
+    return answer, download(link.group(1))
+
+source = api.upload(fixture())["id"]
+created, result = [f"/api/v1/files/{source}"], {}
+try:
+    answer, copy = scenario(source, "Passe le plafond hôtel à 150 € par nuit. Vas-y, modifie sur une copie.", created)
+    result.update(answer=answer[:300], link=copy is not None,
+                  copy_ok="150 €" in text(copy) and "30 jours" in text(copy))
+    answer, copy = scenario(source, "Ajoute au document un visuel des étapes (demande, validation, réservation, "
+                            "remboursement) et un tableau des responsables par étape.", created)
+    result.update(visual_answer=answer[:300], picture=bool(copy and len(copy.inline_shapes)),
+                  table=bool(copy and len(copy.tables)))
+    original = text(download(source))
+    result["original_ok"] = "120 €" in original and "150" not in original
 finally:
     # Cleanup even when a call above fails: no test chat or file left behind.
-    paths = [f"/api/v1/files/{i}" for i in [source] + ([link.group(1)] if link else [])]
-    for path in paths + ([f"/api/v1/chats/{chat_id}"] if chat_id else []):
+    for path in created:
         api.try_call("DELETE", path)
-    print(json.dumps({"answer": answer[:300], "link": bool(link), "copy_ok": "150 €" in copy and "30 jours" in copy,
-                      "original_ok": "120 €" in original and "150" not in original}))'
+    print(json.dumps(result))'
 
 echo "Tests unitaires (python-docx, dans le conteneur openwebui)"
 if docker compose exec -T openwebui python3 -m unittest discover -s /seed/tools 2>&1 | tail -n1 | grep -q '^OK'; then
@@ -76,5 +95,8 @@ field() { python3 -c 'import json,sys; print(json.loads(sys.argv[1]).get(sys.arg
   || fail "pas de lien dans la réponse : $(field answer)${result:0:300}"
 [ "$(field copy_ok)" = True ] && pass "la copie contient la modification (150 €) et le reste (30 jours)" \
   || fail "copie incorrecte ou absente"
+[ "$(field picture)" = True ] && pass "« visuel des étapes » : schéma inséré dans la copie" \
+  || fail "pas de schéma dans la copie : $(field visual_answer)"
+[ "$(field table)" = True ] && pass "« tableau des responsables » : tableau Word inséré" || fail "pas de tableau dans la copie"
 [ "$(field original_ok)" = True ] && pass "l'original est inchangé" || fail "l'original a été modifié"
 finish

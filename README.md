@@ -240,8 +240,8 @@ docker compose exec openwebui python3 /seed/import_seed.py   # groupes, comptes,
    3 prompts `/compte-rendu`, `/mail-relance`, `/resume`, 1 skill « reclamation-client »,
    1 Tool « Copie modifiée d'un document Word » (`seed/tools/word_copy.py`), activé par défaut
    sur les modèles de base : le modèle lit un `.docx` joint **en entier** (sans lui, il n'en voit
-   que 3 extraits) et rend une **copie modifiée** à télécharger, mise en forme conservée,
-   original intact. Import manuel possible : *Workspace → Models / Prompts / Skills → Import* (le skill
+   que 3 extraits) et rend une **copie modifiée** à télécharger (texte, tableau Word, schéma des
+   étapes en image), mise en forme conservée, original intact. Import manuel possible : *Workspace → Models / Prompts / Skills → Import* (le skill
    s'importe directement depuis `seed/skills/reclamation-client.md`).
 5. **Comptes de démo** : `standard@demo.example.com` et `avance@demo.example.com`, créés
    seulement si `CREATE_DEMO_USERS=true` (puis `docker compose up -d openwebui` et relancer
