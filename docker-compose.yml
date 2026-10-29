@@ -31,8 +31,10 @@ services:
       ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-127.0.0.1/8 ::1/128 10.0.0.0/8 192.168.0.0/16}
       CLOUDFLARED_IP: ${CLOUDFLARED_IP:-172.31.250.250}
     volumes:
-      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy/tls:/etc/caddy/tls:ro
+      # Whole directory, not the Caddyfile alone: file bind mounts fail when Docker
+      # Desktop/WSL restarts containers at boot (see scripts/check_bind_mounts.py).
+      # Caddy can read all of caddy/: keep secrets out of it.
+      - ./caddy:/etc/caddy:ro
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
