@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 SHELL_FILES=(scripts/*.sh caddy/*.sh postgres/init/*.sh integrations/automation/*.sh)
-PY_FILES=(seed/*.py seed/tools/*.py integrations/automation/*.py caddy/test/*.py)
+PY_FILES=(scripts/*.py seed/*.py seed/tools/*.py integrations/automation/*.py caddy/test/*.py)
 JSON_FILES=(seed/*.json seed/*/*.json integrations/*/*.json)
 
 echo "== Syntaxe Bash"
@@ -20,15 +20,18 @@ echo "== JSON"
 for f in "${JSON_FILES[@]}"; do python3 -m json.tool "$f" >/dev/null; done
 
 echo "== Compose (profil tunnel inclus)"
-if [ -f .env ]; then
-  docker compose --profile tunnel config -q
-else
+compose=(docker compose --profile tunnel)
+if [ ! -f .env ]; then
   # CI / fresh clone: validate against .env.example filled with throwaway values.
   env_file="$(mktemp)"
   trap 'rm -f "$env_file"' EXIT
   { cat .env.example; ./scripts/gen-secrets.sh; echo "MISTRAL_API_KEY=ci-dummy"; } > "$env_file"
-  docker compose --env-file "$env_file" --profile tunnel config -q
+  compose+=(--env-file "$env_file")
 fi
+"${compose[@]}" config -q
+
+echo "== Montages (dossiers uniquement)"
+"${compose[@]}" config --format json | python3 scripts/check_bind_mounts.py
 
 echo "== Caddy (exposition des routes)"
 ./caddy/test-caddy.sh

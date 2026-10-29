@@ -35,7 +35,7 @@ docker run -d --name "$NET-stub" --network "$NET" --network-alias litellm --netw
 docker run -d --name "$NET-caddy" --network "$NET" --network-alias caddy \
   -e OPENWEBUI_SITE=http://chat.test -e LITELLM_SITE=http://api.test \
   -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32 $LAN_ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
-  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" >/dev/null
+  -v "$PWD/caddy:/etc/caddy:ro" "$CADDY_IMAGE" >/dev/null
 
 # call <client-ip|-> <METHOD> <host> <path> [headers...] — prints "<status> <body>".
 call() {
@@ -105,7 +105,7 @@ echo "-- mode LAN en HTTPS (CADDY_TLS=internal, autorité locale de Caddy)"
 docker run -d --name "$NET-caddy-tls" --network "$NET" --network-alias chat.lan.test --network-alias api.lan.test \
   -e OPENWEBUI_SITE=chat.lan.test -e LITELLM_SITE=api.lan.test -e CADDY_TLS=internal \
   -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
-  -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" >/dev/null
+  -v "$PWD/caddy:/etc/caddy:ro" "$CADDY_IMAGE" >/dev/null
 TLS_DIR="$(mktemp -d)"
 for _ in $(seq 1 20); do
   docker cp "$NET-caddy-tls:/data/caddy/pki/authorities/local/root.crt" "$TLS_DIR/root.crt" >/dev/null 2>&1 && break; sleep 1
@@ -133,7 +133,7 @@ echo "-- émetteur de certificats selon le mode (caddy adapt, hors ligne)"
 issuers() {
   docker run --rm -e OPENWEBUI_SITE="$1" -e LITELLM_SITE="${1/chat/api}" \
     -e CADDY_TLS="$2" -e ADMIN_ALLOWED_IPS="$ADMIN_IP/32" -e CLOUDFLARED_IP="$CLOUDFLARED_IP" \
-    -v "$PWD/caddy/Caddyfile:/etc/caddy/Caddyfile:ro" -v "$PWD/caddy/tls:/etc/caddy/tls:ro" "$CADDY_IMAGE" \
+    -v "$PWD/caddy:/etc/caddy:ro" "$CADDY_IMAGE" \
     caddy adapt --config /etc/caddy/Caddyfile 2>/dev/null \
     | python3 -c 'import json,sys; t=json.load(sys.stdin).get("apps",{}).get("tls",{})
 print(" ".join(sorted({i["module"] for p in t.get("automation",{}).get("policies",[]) for i in p.get("issuers",[])})) or "aucun")' || true
